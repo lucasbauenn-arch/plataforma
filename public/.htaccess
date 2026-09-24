@@ -1,0 +1,69 @@
+# Arken — hospedagem Hostinger (Apache/LiteSpeed). Vai para a raiz do site junto com o build (dist/).
+# Páginas públicas são HTML pré-renderizado (scripts/gerar-seo.mjs) servido em URL limpa; o resto é o SPA (spa.html, noindex).
+
+Options -Indexes
+<IfModule mod_dir.c>
+  DirectorySlash Off
+  DirectoryIndex index.html
+</IfModule>
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # HTTPS e domínio sem www (não se aplica a localhost)
+  RewriteCond %{HTTP_HOST} !^(localhost|127\.0\.0\.1)(:\d+)?$ [NC]
+  RewriteCond %{HTTPS} !=on [OR]
+  RewriteCond %{HTTP_HOST} ^www\. [NC]
+  RewriteCond %{HTTP_HOST} ^(?:www\.)?(.+)$ [NC]
+  RewriteRule ^ https://%1%{REQUEST_URI} [L,R=301]
+
+  # URLs antigas do WordPress (Bauenn)
+  RewriteRule ^login-parceiros/?$ /parceiros [L,R=301]
+  RewriteRule ^cadastro-parceiro/?$ /parceiros/cadastro [L,R=301]
+  RewriteRule ^(user|account|logout)/?$ /parceiros [L,R=301]
+  RewriteRule ^empreendimento/?$ /parceiros/painel [L,R=301]
+  RewriteRule ^portfolio-brasil/?$ /portfolio [L,R=301]
+  RewriteRule ^cliente/?$ /portal-do-cliente [L,R=301]
+
+  # /index.html e /pagina.html digitados → URL limpa (evita conteúdo duplicado). Usa THE_REQUEST para não
+  # disparar nas reescritas internas abaixo.
+  RewriteCond %{THE_REQUEST} \s/+index\.html[\s?] [NC]
+  RewriteRule ^ / [L,R=301]
+  RewriteCond %{THE_REQUEST} \s/+([^?\s]+?)\.html[\s?] [NC]
+  RewriteRule ^ /%1 [L,R=301]
+
+  # barra final → sem barra (WordPress usava barra), exceto diretórios reais
+  RewriteCond %{REQUEST_FILENAME} !-d
+  RewriteRule ^(.+)/$ /$1 [L,R=301]
+
+  # arquivos reais (assets, imagens, sitemap, robots)
+  RewriteCond %{REQUEST_FILENAME} -f
+  RewriteRule ^ - [L]
+
+  # home
+  RewriteRule ^$ /index.html [L]
+
+  # URL limpa: /rota (ou /rota/ quando existe o diretório) → rota.html
+  RewriteCond %{DOCUMENT_ROOT}/$1.html -f
+  RewriteRule ^(.+?)/?$ /$1.html [L]
+
+  # SPA: painéis, portal, login e 404
+  RewriteRule ^ /spa.html [L]
+</IfModule>
+
+<IfModule mod_headers.c>
+  Header always set X-Content-Type-Options "nosniff"
+  Header always set Referrer-Policy "strict-origin-when-cross-origin"
+  Header always set X-Frame-Options "SAMEORIGIN"
+  Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+  <FilesMatch "\.(html|xml|txt)$">
+    Header set Cache-Control "no-cache"
+  </FilesMatch>
+  <FilesMatch "\.(jpe?g|png|webp|svg|ico)$">
+    Header set Cache-Control "public, max-age=86400"
+  </FilesMatch>
+</IfModule>
+
+<IfModule mod_deflate.c>
+  AddOutputFilterByType DEFLATE text/html text/css text/plain text/xml application/javascript application/json image/svg+xml
+</IfModule>

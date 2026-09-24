@@ -1,0 +1,47 @@
+{
+  "site": "https://arkenincorporadora.com.br",
+  "nome": "Arken Incorporadora",
+  "organizacao": {
+    "telefone": "+55-11-93200-4821",
+    "email": "vendas@arkenincorporadora.com.br",
+    "endereco": "R. Cel. Irineu de Castro, 43 — Edif. City Tower, Jardim Anália Franco",
+    "cidade": "São Paulo",
+    "uf": "SP",
+    "cep": "03333-050"
+  },
+  "paginas": {
+    "/": {
+      "titulo": "Arken Incorporadora — Empreendimentos em São Paulo",
+      "descricao": "Apartamentos na planta, em obras e prontos para morar em São Paulo. Conheça os lançamentos da Arken Incorporadora e use seu FGTS."
+    },
+    "/empreendimentos": {
+      "titulo": "Imóveis à venda em São Paulo — Arken Incorporadora",
+      "descricao": "Veja todos os empreendimentos da Arken: lançamentos, obras em andamento e apartamentos prontos para morar em São Paulo."
+    },
+    "/quem-somos": {
+      "titulo": "Quem somos — Arken Incorporadora",
+      "descricao": "Construtora e incorporadora residencial em São Paulo, do projeto estrutural à entrega das chaves."
+    },
+    "/portfolio": {
+      "titulo": "Portfólio — Arken Incorporadora",
+      "descricao": "Empreendimentos entregues e prontos para morar pela Arken Incorporadora em São Paulo."
+    },
+    "/termos-de-uso": {
+      "titulo": "Termos de uso — Arken Incorporadora",
+      "descricao": "Termos de uso do site da Arken Incorporadora."
+    },
+    "/politica-de-privacidade": {
+      "titulo": "Política de privacidade — Arken Incorporadora",
+      "descricao": "Como a Arken Incorporadora trata seus dados pessoais, conforme a LGPD."
+    },
+    "/politica-de-cookies": {
+      "titulo": "Política de cookies — Arken Incorporadora",
+      "descricao": "Como o site da Arken Incorporadora usa cookies."
+    }
+  },
+  "privadas": {
+    "/parceiros": "Área do parceiro — Arken Incorporadora",
+    "/portal-do-cliente": "Portal do cliente — Arken Incorporadora",
+    "/admin": "Administração — Arken Incorporadora"
+  }
+}

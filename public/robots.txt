@@ -1,0 +1,7 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /parceiros/painel
+Disallow: /portal-do-cliente/meus-imoveis
+
+Sitemap: https://arkenincorporadora.com.br/sitemap.xml

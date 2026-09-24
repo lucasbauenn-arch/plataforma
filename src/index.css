@@ -1,0 +1,68 @@
+@import "tailwindcss";
+
+@theme {
+  --font-sans: "Jost", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Jost", ui-sans-serif, system-ui, sans-serif;
+
+  /* tema escuro — papéis: ink = fundo, ink-soft = superfície (cards, inputs, seções alternadas),
+     sand = preenchimento sutil (placeholders, trilhas, cabeçalho de tabela), line = bordas,
+     stone = texto principal, muted = texto secundário, bronze = destaque */
+  --color-ink: #0f1318;
+  --color-ink-soft: #171c23;
+  --color-stone: #f3eee6;
+  --color-sand: #222933;
+  --color-line: #2b323c;
+  --color-muted: #9d978d;
+  --color-bronze: #c27e4a;
+  --color-bronze-dark: #9c6134;
+  --color-sage: #8fa894;
+}
+
+@layer base {
+  html { scroll-behavior: smooth; color-scheme: dark; }
+  body { @apply bg-ink text-stone font-sans antialiased; }
+  h1, h2, h3 { text-wrap: balance; }
+  ::selection { @apply bg-bronze text-ink; }
+}
+
+@utility container-x {
+  @apply mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-10;
+}
+
+@utility eyebrow {
+  @apply text-xs font-semibold uppercase tracking-[0.22em] text-bronze;
+}
+
+@utility display {
+  @apply font-display font-medium leading-[1.05] tracking-tight;
+}
+
+@utility btn {
+  @apply inline-flex items-center justify-center gap-2 px-6 py-3 text-sm font-semibold transition-colors disabled:opacity-50 disabled:pointer-events-none;
+}
+
+@utility btn-primary {
+  @apply btn bg-stone text-ink hover:bg-white;
+}
+
+@utility btn-accent {
+  /* texto escuro sobre bronze: contraste AA (branco sobre bronze fica abaixo de 4.5:1) */
+  @apply btn bg-bronze text-ink hover:brightness-110;
+}
+
+@utility btn-ghost {
+  @apply btn border border-stone/20 hover:border-stone/50;
+}
+
+@utility input {
+  @apply w-full border border-line bg-ink-soft px-4 py-3 text-sm text-stone outline-none transition placeholder:text-muted focus:border-bronze focus:ring-2 focus:ring-bronze/20;
+}
+
+@utility label {
+  @apply mb-1.5 block text-sm font-medium text-stone/80;
+}
+
+@utility card {
+  @apply border border-line bg-ink-soft;
+}
+

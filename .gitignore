@@ -1,0 +1,21 @@
+node_modules
+dist
+.env
+.env.local
+*.local
+.DS_Store
+supabase/.temp
+
+# dados do WordPress (não versionar)
+*.sql.gz
+u655335892_*.sql
+uploads.zip
+uploads/
+scripts/midias-faltando.txt
+
+# testes
+test-results/
+playwright-report/
+
+# config local do Claude Code (permissões desta máquina, não compartilhar)
+.claude/settings.local.json
