@@ -16,8 +16,10 @@ export default function QuemSomos() {
           <h1 className="display mt-3 text-5xl sm:text-7xl">Transformamos ideias em endereços.</h1>
         </div>
         <div className="space-y-5 text-lg leading-relaxed text-stone/80">
-          <p>A Arken é uma empresa dedicada a transformar ideias em realidade no setor da construção civil. Atuamos como prestadora de serviços e construtora, oferecendo desde a concepção de projetos complementares — estruturas, redes elétricas e sistemas hidráulicos — até a execução completa da obra.</p>
-          <p>Além de realizar obras sob medida, desenvolvemos e colocamos no mercado empreendimentos residenciais em regiões estratégicas de São Paulo, garantindo um serviço completo do início ao fim.</p>
+          <p>A Arken Incorporadora nasce com o propósito de transformar oportunidades em empreendimentos que geram valor e contribuem para o desenvolvimento das cidades.</p>
+          <p>Atuamos em todas as etapas do desenvolvimento imobiliário, desde a identificação e aquisição de terrenos, estudos de viabilidade e concepção dos projetos até a incorporação, construção, comercialização e entrega dos empreendimentos.</p>
+          <p>Desenvolvemos projetos residenciais em regiões estratégicas de São Paulo, combinando planejamento, qualidade construtiva, eficiência e soluções pensadas para as necessidades de cada público.</p>
+          <p>Na Arken, cada empreendimento é desenvolvido com uma visão completa: do terreno à entrega das chaves, transformando projetos em novos espaços para viver, investir e construir histórias.</p>
         </div>
       </section>
       <section className="bg-ink-soft py-20">
