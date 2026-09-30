@@ -39,7 +39,7 @@ export function FormLead({ empreendimentoId, escuro = false }: { empreendimentoI
 
   if (enviado) {
     return (
-      <div className={`p-8 text-center ${escuro ? 'bg-white/5' : 'bg-ink-soft'}`}>
+      <div className={`p-8 text-center ${escuro ? 'bg-sand' : 'bg-ink-soft'}`}>
         <p className="display text-3xl">Recebemos seu contato.</p>
         <p className="mt-2 text-sm opacity-75">Um consultor Arken vai falar com você em breve.</p>
       </div>

@@ -62,11 +62,12 @@ export function useMaterial(empreendimentoId: string | undefined) {
     queryKey: ['material', empreendimentoId],
     enabled: !!empreendimentoId,
     queryFn: async () => {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('empreendimento_materiais')
         .select('drive_url, observacoes')
         .eq('empreendimento_id', empreendimentoId!)
         .maybeSingle()
+      if (error) throw error
       return data as { drive_url: string | null; observacoes: string | null } | null
     },
   })

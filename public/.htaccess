@@ -56,6 +56,21 @@ Options -Indexes
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
   Header always set Permissions-Policy "camera=(), microphone=(), geolocation=()"
+
+  # HSTS (FR1-03): depois do primeiro acesso, o navegador só fala https com o site (o redirecionamento 301 acima cobre o
+  # primeiro). 6 meses, SEM includeSubDomains e sem preload: subir para 1 ano depois de conferir os subdomínios.
+  Header always set Strict-Transport-Security "max-age=15552000"
+
+  # CSP (FR1-03): defesa em profundidade para o painel, o portal e o painel de parceiros (dados pessoais e sessão do
+  # Supabase no localStorage). Nada no app usa script inline nem eval; o que vem de fora é só:
+  #   - script/frame/connect: Cloudflare Turnstile (challenges.cloudflare.com);
+  #   - style/font: Google Fonts (Jost); style-src leva 'unsafe-inline' (atributos style do React e o <style> do sonner);
+  #   - connect: o projeto Supabase (API, Auth, Storage, Edge Functions e realtime) e os serviços de CEP (ViaCEP, BrasilAPI);
+  #   - img: o Storage do Supabase e imagens https colocadas pela equipe (midiaUrl aceita URL completa), data: e blob:;
+  #   - frame: YouTube, Google Maps e o tour virtual, cuja URL a equipe cadastra (qualquer https), por isso frame-src https:.
+  # Se trocar o projeto Supabase (o endereço abaixo) ou adicionar um serviço externo, atualizar aqui, senão o navegador
+  # bloqueia a chamada. Para diagnosticar sem bloquear: trocar o nome do cabeçalho por Content-Security-Policy-Report-Only.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://xucwjsycawizrlouqkvh.supabase.co wss://xucwjsycawizrlouqkvh.supabase.co https://viacep.com.br https://brasilapi.com.br https://challenges.cloudflare.com; frame-src https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
   <FilesMatch "\.(html|xml|txt)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>

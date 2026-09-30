@@ -190,7 +190,7 @@ export default function Empreendimento() {
           <div>
             <p className="eyebrow">Interessou?</p>
             <h2 className="display mt-3 text-4xl sm:text-5xl">Receba a tabela e as condições do {e.nome}.</h2>
-            <a className="btn mt-8 bg-[#25D366] text-white" target="_blank" rel="noreferrer"
+            <a className="btn mt-8 bg-whatsapp text-ink hover:brightness-110" target="_blank" rel="noreferrer"
               href={waLink(EMPRESA.whatsapp, `Olá! Tenho interesse no ${e.nome}.`)}>Falar no WhatsApp</a>
           </div>
           <FormLead empreendimentoId={e.id} escuro />

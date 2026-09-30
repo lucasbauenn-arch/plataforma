@@ -1,12 +1,19 @@
--- Função public.relatorio(): só admin; agregados conferidos com dados conhecidos.
+-- Função public.relatorio(): só internos; agregados conferidos com dados conhecidos.
+-- v2 (20260929000003): security definer com a checagem is_admin() (inclusive MFA exigido, H5), para continuar
+-- funcionando depois que o corte revogar o SELECT direto em leads e propostas; "parceiros_novos" conta também os papéis
+-- novos da rede (corretor, gerente, imobiliária); "parceiros_pendentes" continua sendo só o autocadastro.
 begin;
 create extension if not exists pgtap with schema extensions;
-select plan(12);
+select plan(18);
 
 insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, created_at, updated_at) values
   ('00000000-0000-0000-0000-0000000000a1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'adm@r.com', '{"nome":"Adm"}', now(), now()),
-  ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'par@r.com', '{"nome":"Parceira R"}', now(), now());
+  ('00000000-0000-0000-0000-0000000000b1', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'par@r.com', '{"nome":"Parceira R"}', now(), now()),
+  ('00000000-0000-0000-0000-0000000000b2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'cor@r.com', '{"nome":"Corretor R"}', now(), now()),
+  ('00000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', 'sup@r.com', '{"nome":"Super R"}', now(), now());
 update public.profiles set papel = 'admin', status_parceiro = 'aprovado' where email = 'adm@r.com';
+update public.profiles set papel = 'super', status_parceiro = 'aprovado' where email = 'sup@r.com';
+update public.profiles set papel = 'corretor', status_parceiro = 'aprovado' where email = 'cor@r.com';
 
 -- 3 leads no período (2 do Eixo Leste, 1 geral) e 1 no período anterior
 insert into public.leads (nome, telefone, empreendimento_id, origem, created_at)
@@ -23,10 +30,12 @@ select id, u, v, s::public.status_unidade from public.empreendimentos,
   (values ('A1', 200000, 'disponivel'), ('A2', 250000, 'disponivel'), ('A3', 300000, 'vendida'), ('A4', 310000, 'reservada')) x(u, v, s)
 where slug = 'eixo-leste';
 
--- não admin
+-- não interno
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000b1","role":"authenticated"}';
 select throws_ok($$select public.relatorio(now() - interval '30 days')$$, '42501', null, 'parceiro não acessa relatórios');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000b2","role":"authenticated"}';
+select throws_ok($$select public.relatorio(now() - interval '30 days')$$, '42501', null, 'corretor da rede não acessa relatórios');
 reset role;
 set local role anon;
 select throws_ok($$select public.relatorio(now() - interval '30 days')$$, '42501', null, 'visitante não acessa relatórios');
@@ -45,7 +54,27 @@ select is((select (j->'leads_por_empreendimento'->0->>'total')::int from r), 2, 
 select is((select j->'parceiros_ranking'->0->>'aprovadas' from r), '2', 'ranking de parceiros com aprovadas');
 select is((select (j->'estoque'->0->>'disponivel')::int from r), 2, 'estoque: disponíveis');
 select is((select (j->'estoque'->0->>'vgv_disponivel')::numeric from r), 450000::numeric, 'estoque: VGV disponível');
-select is((select (j->>'parceiros_novos')::int from r), 1, 'parceiros novos no período');
+select is((select (j->>'parceiros_novos')::int from r), 2, 'parceiros novos no período: autocadastro e papéis da rede (corretor)');
+select is((select (j->>'parceiros_pendentes')::int from r), 1, 'pendentes: só o autocadastro (papel parceiro)');
+reset role;
+
+-- depois do corte o authenticated perde o SELECT direto em leads e propostas (§4.3): o relatório continua
+revoke select on public.leads, public.propostas from authenticated;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated"}';
+select is((public.relatorio(now() - interval '30 days') ->> 'leads')::int, 3,
+          'security definer: o relatório não depende do SELECT direto em leads e propostas');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a2","role":"authenticated"}';
+select is((public.relatorio(now() - interval '30 days') -> 'propostas' ->> 'enviada'), '1', 'o Super também acessa');
+reset role;
+
+-- MFA exigido (H5): interno só com sessão aal2
+update public.configuracao_geral set exigir_mfa_interno = true;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated","aal":"aal1"}';
+select throws_ok($$select public.relatorio(now() - interval '30 days')$$, '42501', null, 'MFA exigido: admin com aal1 não acessa');
+set local request.jwt.claims = '{"sub":"00000000-0000-0000-0000-0000000000a1","role":"authenticated","aal":"aal2"}';
+select lives_ok($$select public.relatorio(now() - interval '30 days')$$, 'MFA exigido: admin com aal2 acessa');
 reset role;
 
 select * from finish();

@@ -15,6 +15,6 @@ export const Tabela = ({ cab, children }: { cab: string[]; children: ReactNode }
   </div>
 )
 export const Badge = ({ children, tom = 'neutro' }: { children: ReactNode; tom?: 'neutro' | 'ok' | 'alerta' | 'erro' }) => {
-  const c = { neutro: 'bg-sand text-stone', ok: 'bg-sage/15 text-sage', alerta: 'bg-bronze/15 text-bronze', erro: 'bg-red-500/15 text-red-300' }[tom]
+  const c = { neutro: 'bg-sand text-stone', ok: 'bg-sage/15 text-sage', alerta: 'bg-bronze/15 text-bronze', erro: 'bg-perigo/15 text-perigo' }[tom]
   return <span className={`inline-block px-2.5 py-0.5 text-xs font-semibold ${c}`}>{children}</span>
 }

@@ -12,5 +12,5 @@ export const Vazio = ({ titulo, texto }: { titulo: string; texto?: string }) => 
 )
 
 export const Erro = ({ texto = 'Não foi possível carregar os dados.' }: { texto?: string }) => (
-  <div className="border border-red-500/30 bg-red-500/10 px-6 py-5 text-sm text-red-300">{texto}</div>
+  <div className="border border-perigo/30 bg-perigo/10 px-6 py-5 text-sm text-perigo">{texto}</div>
 )

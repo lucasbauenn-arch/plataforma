@@ -7,9 +7,13 @@ import { supabase } from '@/lib/supabase'
 import { ESTAGIOS, STATUS_UNIDADE } from '@/lib/constants'
 import { midiaUrl } from '@/lib/midia'
 import { brl } from '@/lib/format'
+import { ErroRpc, mensagemErro, traduzirErro } from '@/lib/erros'
+import { ErroConsulta } from '@/components/app/Consulta'
+import { ConfirmarModal } from '@/components/app/ConfirmarModal'
 import type { EmpreendimentoCompleto, TipoMidia, Unidade, ObraAtualizacao, StatusUnidade } from '@/lib/types'
 import { Carregando } from '@/components/Estados'
-import { lerEspelhoVendas, numeroBR } from '@/lib/espelho'
+import { chaveUnidade, lerEspelhoVendas, numeroBR, planejarImportacao, type PlanoImportacao } from '@/lib/espelho'
+import { aplicarPlanoDeImportacao, lerCadastroDeUnidades, listaCurta } from './espelhoImportacao'
 
 type Aba = 'dados' | 'midias' | 'conteudo' | 'unidades' | 'obra'
 const ABAS: [Aba, string][] = [['dados', 'Dados'], ['midias', 'Galeria'], ['conteudo', 'Lazer, ficha e proximidades'], ['unidades', 'Unidades e materiais'], ['obra', 'Andamento da obra']]
@@ -19,6 +23,19 @@ async function enviarArquivo(empId: string, file: File) {
   const { error } = await supabase.storage.from('empreendimentos').upload(path, file, { cacheControl: '31536000' })
   if (error) { toast.error(`Falha ao enviar ${file.name}`); return null }
   return path
+}
+
+/** Item à espera de confirmação para excluir (mensagem do modal + a exclusão em si). */
+interface AlvoExclusao { titulo: string; texto: string; excluir: () => Promise<void> }
+
+/**
+ * DELETE por id. O erro do servidor vira exceção (o `ConfirmarModal` mostra no aviso e mantém o modal aberto) e também
+ * "nenhuma linha apagada": sem erro e sem linha significa que a política de acesso barrou em silêncio.
+ */
+async function apagarLinha(tabela: string, id: string) {
+  const { data, error } = await supabase.from(tabela).delete().eq('id', id).select('id')
+  if (error) throw traduzirErro(error)
+  if (!data?.length) throw traduzirErro({ code: '42501', message: 'Sem acesso a este registro' })
 }
 
 // campos não controlados do formulário "Dados" — fora do componente para não remontar a cada render
@@ -51,13 +68,15 @@ function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
       mostrar_no_portfolio: f.get('mostrar_no_portfolio') === 'on', ordem: Number(f.get('ordem') || 0),
     }
     const { error } = await supabase.from('empreendimentos').update(upd).eq('id', e.id)
-    if (error) return toast.error('Erro ao salvar: ' + error.message)
+    if (error) return toast.error(mensagemErro(error))
     toast.success('Salvo'); salvo()
   }
   async function trocarCapa(ev: React.ChangeEvent<HTMLInputElement>) {
     const file = ev.target.files?.[0]; if (!file) return
     const p = await enviarArquivo(e.id, file); if (!p) return
-    await supabase.from('empreendimentos').update({ capa_url: p }).eq('id', e.id); salvo()
+    const { error } = await supabase.from('empreendimentos').update({ capa_url: p }).eq('id', e.id)
+    if (error) return toast.error(mensagemErro(error))
+    toast.success('Capa atualizada'); salvo()
   }
   return (
     <form onSubmit={salvar} className="grid gap-8">
@@ -98,35 +117,56 @@ function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
   )
 }
 
+/** Modal de confirmação das exclusões do editor: erro do servidor vira aviso e o modal continua aberto. */
+function ConfirmarExclusao({ alvo, aoFechar, depois }: { alvo: AlvoExclusao | null; aoFechar: () => void; depois: () => void }) {
+  return (
+    <ConfirmarModal
+      aberto={!!alvo} titulo={alvo?.titulo ?? ''} texto={alvo?.texto} rotuloConfirmar="Excluir" perigo
+      aoConfirmar={async () => { await alvo?.excluir(); toast.success('Excluído'); depois() }}
+      aoFechar={aoFechar}
+    />
+  )
+}
+
 function Midias({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
   const [tipo, setTipo] = useState<TipoMidia>('fachada')
+  const [alvo, setAlvo] = useState<AlvoExclusao | null>(null)
   async function upload(ev: React.ChangeEvent<HTMLInputElement>) {
-    const files = Array.from(ev.target.files ?? [])
+    const input = ev.target
+    const files = Array.from(input.files ?? [])
     let ordem = e.empreendimento_midias.filter((m) => m.tipo === tipo).length
+    let falhas = 0
     for (const f of files) {
       const p = await enviarArquivo(e.id, f)
-      if (p) await supabase.from('empreendimento_midias').insert({ empreendimento_id: e.id, tipo, url: p, ordem: ordem++ })
+      if (!p) { falhas++; continue }
+      const { error } = await supabase.from('empreendimento_midias').insert({ empreendimento_id: e.id, tipo, url: p, ordem: ordem++ })
+      if (error) { falhas++; toast.error(`${f.name}: ${mensagemErro(error)}`) }
     }
-    ev.target.value = ''; salvo()
+    input.value = ''
+    if (files.length > falhas) toast.success(`${files.length - falhas} imagem(ns) enviada(s)${falhas ? `, ${falhas} com falha` : ''}`)
+    salvo()
   }
   return (
     <div>
       <div className="mb-6 flex flex-wrap items-center gap-3">
-        <select value={tipo} onChange={(ev) => setTipo(ev.target.value as TipoMidia)} className="input !w-auto">
+        <select aria-label="Tipo da imagem" value={tipo} onChange={(ev) => setTipo(ev.target.value as TipoMidia)} className="input !w-auto">
           <option value="fachada">Fachada</option><option value="area_comum">Área comum</option><option value="planta">Plantas</option><option value="decorado">Decorado</option><option value="obra">Obra</option>
         </select>
         <label className="btn-primary cursor-pointer"><Upload size={15} /> Enviar imagens<input type="file" multiple accept="image/*" className="sr-only" onChange={upload} /></label>
       </div>
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-        {e.empreendimento_midias.map((m) => (
-          <figure key={m.id} className="group relative overflow-hidden bg-sand">
+        {e.empreendimento_midias.map((m, i) => (
+          <figure key={m.id} className="relative overflow-hidden bg-sand">
             <img src={midiaUrl(m.url)!} alt="" className="aspect-square w-full object-cover" loading="lazy" />
             <figcaption className="absolute inset-x-0 bottom-0 bg-ink/70 px-2 py-1 text-xs text-stone">{m.tipo}</figcaption>
-            <button onClick={async () => { await supabase.from('empreendimento_midias').delete().eq('id', m.id); salvo() }}
-              className="absolute right-2 top-2 bg-stone p-1.5 text-ink opacity-0 group-hover:opacity-100" aria-label="Remover"><Trash2 size={14} /></button>
+            {/* sempre visível: no toque e no teclado não existe "passar o mouse" */}
+            <button type="button" aria-label={`Remover imagem ${i + 1} (${m.tipo})`}
+              onClick={() => setAlvo({ titulo: 'Remover imagem da galeria?', texto: `A imagem ${i + 1} (${m.tipo}) sai da galeria do empreendimento.`, excluir: () => apagarLinha('empreendimento_midias', m.id) })}
+              className="absolute right-2 top-2 bg-stone p-1.5 text-ink"><Trash2 size={14} /></button>
           </figure>
         ))}
       </div>
+      <ConfirmarExclusao alvo={alvo} aoFechar={() => setAlvo(null)} depois={salvo} />
     </div>
   )
 }
@@ -134,6 +174,7 @@ function Midias({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) 
 type Campo = { k: string; l: string }
 function Repetidor({ titulo, tabela, empId, itens, campos, salvo }: { titulo: string; tabela: string; empId: string; itens: Record<string, unknown>[]; campos: Campo[]; salvo: () => void }) {
   const [editId, setEditId] = useState<string | null>(null)
+  const [alvo, setAlvo] = useState<AlvoExclusao | null>(null)
   const editando = itens.find((it) => it.id === editId) ?? null
 
   async function salvarForm(ev: React.FormEvent<HTMLFormElement>) {
@@ -144,7 +185,7 @@ function Repetidor({ titulo, tabela, empId, itens, campos, salvo }: { titulo: st
     const { error } = editId
       ? await supabase.from(tabela).update(row).eq('id', editId)
       : await supabase.from(tabela).insert({ ...row, empreendimento_id: empId, ordem: itens.length })
-    if (error) return toast.error(error.message)
+    if (error) return toast.error(mensagemErro(error))
     if (!editId) ev.currentTarget.reset()
     setEditId(null); salvo()
   }
@@ -156,17 +197,22 @@ function Repetidor({ titulo, tabela, empId, itens, campos, salvo }: { titulo: st
           <li key={it.id as string} className="flex items-start justify-between gap-3 bg-sand/40 px-4 py-2">
             <span><strong>{it[campos[0].k] as string}</strong> {campos.slice(1).map((c) => it[c.k]).filter(Boolean).join(' · ')}</span>
             <span className="flex shrink-0 gap-3">
-              <button className="text-muted hover:text-bronze" onClick={() => setEditId(it.id as string)}><Pencil size={14} /></button>
-              <button className="text-muted hover:text-red-400" onClick={async () => { if (editId === it.id) setEditId(null); await supabase.from(tabela).delete().eq('id', it.id as string); salvo() }}><Trash2 size={15} /></button>
+              <button type="button" aria-label={`Editar ${it[campos[0].k]}`} className="text-muted hover:text-bronze" onClick={() => setEditId(it.id as string)}><Pencil size={14} /></button>
+              <button type="button" aria-label={`Excluir ${it[campos[0].k]}`} className="text-muted hover:text-perigo"
+                onClick={() => setAlvo({
+                  titulo: `Excluir "${it[campos[0].k]}"?`, texto: `O item sai de "${titulo}" e não pode ser recuperado.`,
+                  excluir: async () => { await apagarLinha(tabela, it.id as string); if (editId === it.id) setEditId(null) },
+                })}><Trash2 size={15} /></button>
             </span>
           </li>
         ))}
       </ul>
       {editId && <p className="mb-2 flex items-center justify-between text-xs text-bronze">Editando item <button type="button" className="inline-flex items-center gap-1 text-muted" onClick={() => setEditId(null)}><X size={12} /> cancelar</button></p>}
       <form key={editId ?? 'novo'} onSubmit={salvarForm} className="grid gap-2 sm:grid-cols-[repeat(auto-fit,minmax(130px,1fr))]">
-        {campos.map((c, i) => <input key={c.k} name={c.k} required={i === 0} defaultValue={editando ? (editando[c.k] as string ?? '') : ''} placeholder={c.l} className="input !py-2" />)}
+        {campos.map((c, i) => <input key={c.k} name={c.k} required={i === 0} aria-label={c.l} defaultValue={editando ? (editando[c.k] as string ?? '') : ''} placeholder={c.l} className="input !py-2" />)}
         <button className="btn-ghost !py-2">{editId ? <><Pencil size={15} /> Salvar</> : <><Plus size={15} /> Adicionar</>}</button>
       </form>
+      <ConfirmarExclusao alvo={alvo} aoFechar={() => setAlvo(null)} depois={salvo} />
     </section>
   )
 }
@@ -174,81 +220,186 @@ function Repetidor({ titulo, tabela, empId, itens, campos, salvo }: { titulo: st
 function Unidades({ e }: { e: EmpreendimentoCompleto }) {
   const qc = useQueryClient()
   const [editId, setEditId] = useState<string | null>(null)
-  const { data: unidades = [] } = useQuery({
+  const [alvo, setAlvo] = useState<AlvoExclusao | null>(null)
+  const [importacao, setImportacao] = useState<{ plano: PlanoImportacao; arquivo: string } | null>(null)
+  const unidadesQ = useQuery({
     queryKey: ['unidades', e.id],
-    queryFn: async () => (await supabase.from('unidades').select('*').eq('empreendimento_id', e.id).order('identificador')).data as Unidade[],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('unidades').select('*').eq('empreendimento_id', e.id).order('identificador')
+      if (error) throw traduzirErro(error)
+      return (data ?? []) as Unidade[]
+    },
   })
-  const { data: mat } = useQuery({
+  const unidades = unidadesQ.data ?? []
+  const materialQ = useQuery({
     queryKey: ['material', e.id],
-    queryFn: async () => (await supabase.from('empreendimento_materiais').select('*').eq('empreendimento_id', e.id).maybeSingle()).data as { drive_url: string | null } | null,
+    queryFn: async () => {
+      const { data, error } = await supabase.from('empreendimento_materiais').select('*').eq('empreendimento_id', e.id).maybeSingle()
+      if (error) throw traduzirErro(error)
+      return data as { drive_url: string | null } | null
+    },
   })
+  const mat = materialQ.data
   const recarregar = () => qc.invalidateQueries({ queryKey: ['unidades', e.id] })
   const num = numeroBR
 
-  async function importar(ev: React.ChangeEvent<HTMLInputElement>) {
-    const file = ev.target.files?.[0]; if (!file) return
-    const dados = lerEspelhoVendas(await file.text()).map((l) => ({ empreendimento_id: e.id, ...l }))
-    if (!dados.length) return toast.error('Nenhuma linha válida. Formato: unidade;metragem;valor;status')
-    if (!confirm(`Substituir a tabela atual por ${dados.length} unidades?`)) return
-    await supabase.from('unidades').delete().eq('empreendimento_id', e.id)
-    const { error } = await supabase.from('unidades').insert(dados)
-    ev.target.value = ''
-    if (error) return toast.error(error.message)
-    toast.success(`${dados.length} unidades importadas`); recarregar()
+  // Importação do espelho de vendas (FUX-01): compara o arquivo com o cadastro do servidor e mostra o que vai acontecer;
+  // NADA é apagado (unidade com contrato, proposta ou negócio do portal continua ligada), só se cria e se atualiza.
+  async function escolherArquivo(ev: React.ChangeEvent<HTMLInputElement>) {
+    const input = ev.target
+    const file = input.files?.[0]
+    if (!file) return
+    try {
+      const linhas = lerEspelhoVendas(await file.text())
+      if (!linhas.length) return toast.error('Nenhuma linha válida. Formato: unidade;metragem;valor;status')
+      const plano = planejarImportacao(linhas, await lerCadastroDeUnidades(e.id))
+      if (plano.repetidasNoArquivo.length) {
+        return toast.error(`O arquivo repete estas unidades: ${listaCurta(plano.repetidasNoArquivo)}. Deixe uma linha por unidade e envie de novo.`)
+      }
+      if (!plano.criar.length && !plano.atualizar.length) {
+        return toast.info(`Nada a alterar: as ${plano.semMudanca} unidade(s) do arquivo já estão iguais ao cadastro.`)
+      }
+      setImportacao({ plano, arquivo: file.name })
+    } catch (erro) {
+      toast.error(mensagemErro(erro))
+    } finally {
+      input.value = ''
+    }
   }
-  async function status(u: Unidade, s: StatusUnidade) { await supabase.from('unidades').update({ status: s }).eq('id', u.id); recarregar() }
+
+  // Não lança: o plano gravado pela metade NÃO pode ser repetido (criaria as novas de novo). Quem quiser tentar as
+  // que falharam envia o arquivo outra vez, e um plano novo é calculado sobre o cadastro do momento.
+  async function aplicarImportacao() {
+    if (!importacao) return
+    try {
+      const r = await aplicarPlanoDeImportacao(e.id, importacao.plano)
+      if (r.falhas.length) {
+        toast.error(
+          `${r.falhas.length} unidade(s) não foram gravadas (${listaCurta(r.falhas.map((f) => f.identificador), 4)}): ${r.falhas[0].motivo} ` +
+          `${r.criadas + r.atualizadas} foram gravadas. Envie o arquivo de novo para tentar as que faltam.`,
+          { duration: 12_000 },
+        )
+      } else {
+        toast.success(`Importação concluída: ${r.criadas} nova(s), ${r.atualizadas} atualizada(s).`)
+      }
+    } catch (erro) {
+      toast.error(mensagemErro(erro))
+    } finally {
+      await recarregar()
+    }
+  }
+
+  async function status(u: Unidade, s: StatusUnidade) {
+    const { data, error } = await supabase.from('unidades').update({ status: s }).eq('id', u.id).select('id')
+    if (error || !data?.length) toast.error(error ? mensagemErro(error) : 'Não foi possível alterar o status desta unidade.')
+    else toast.success(`${u.identificador}: ${STATUS_UNIDADE[s]}`)
+    await recarregar()
+  }
   const editando = unidades.find((u) => u.id === editId) ?? null
   async function salvarUnidade(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault(); const f = Object.fromEntries(new FormData(ev.currentTarget)) as Record<string, string>
-    const dados = { identificador: f.id, metragem: num(f.m), valor: num(f.v) }
+    const dados = { identificador: f.id.trim(), metragem: num(f.m), valor: num(f.v) }
+    // sem unique no banco: o nome da unidade (a chave da importação do espelho) não pode se repetir no empreendimento
+    if (unidades.some((u) => u.id !== editId && chaveUnidade(u.identificador) === chaveUnidade(dados.identificador))) {
+      return toast.error(`Já existe a unidade "${dados.identificador}" neste empreendimento.`)
+    }
     const { error } = editId
       ? await supabase.from('unidades').update(dados).eq('id', editId)
       : await supabase.from('unidades').insert({ empreendimento_id: e.id, ...dados })
-    if (error) return toast.error(error.message)
+    if (error) return toast.error(mensagemErro(error))
     if (!editId) ev.currentTarget.reset()
     setEditId(null); recarregar()
   }
   async function salvarDrive(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault(); const url = (new FormData(ev.currentTarget).get('drive') as string) || null
     const { error } = await supabase.from('empreendimento_materiais').upsert({ empreendimento_id: e.id, drive_url: url })
-    if (error) toast.error(error.message); else toast.success('Link salvo')
+    if (error) toast.error(mensagemErro(error)); else toast.success('Link salvo')
+  }
+  // unidade ligada a contrato não sai (FK): a mensagem diz o que fazer em vez de "dados inválidos"
+  async function excluirUnidade(u: Unidade) {
+    try {
+      await apagarLinha('unidades', u.id)
+    } catch (erro) {
+      if (traduzirErro(erro).sqlstate === '23503') {
+        throw new ErroRpc('DADOS_INVALIDOS', 'Esta unidade está ligada a um contrato e não pode ser excluída. Para tirá-la das ofertas, mude o status para "Vendida".')
+      }
+      throw erro
+    }
+    if (editId === u.id) setEditId(null)
   }
 
+  const plano = importacao?.plano
   return (
     <div className="grid gap-6">
-      <form onSubmit={salvarDrive} className="card flex flex-wrap items-end gap-3 p-5">
-        <label className="min-w-64 flex-1"><span className="label">Pasta de materiais para parceiros (Google Drive)</span><input name="drive" key={mat?.drive_url ?? ''} defaultValue={mat?.drive_url ?? ''} className="input" /></label>
-        <button className="btn-primary">Salvar link</button>
-      </form>
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <h3 className="font-semibold">{unidades.length} unidades · {unidades.filter((u) => u.status === 'disponivel').length} disponíveis</h3>
-        <label className="btn-ghost cursor-pointer"><Upload size={15} /> Importar espelho de vendas (CSV)<input type="file" accept=".csv,.txt" className="sr-only" onChange={importar} /></label>
-      </div>
-      {editId && <p className="flex items-center justify-between text-xs text-bronze">Editando {editando?.identificador} <button type="button" className="inline-flex items-center gap-1 text-muted" onClick={() => setEditId(null)}><X size={12} /> cancelar</button></p>}
-      <form key={editId ?? 'novo'} onSubmit={salvarUnidade} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
-        <input name="id" required defaultValue={editando?.identificador ?? ''} placeholder="Unidade (APTO 01)" className="input !py-2" />
-        <input name="m" defaultValue={editando?.metragem ?? ''} placeholder="Metragem" className="input !py-2" />
-        <input name="v" defaultValue={editando?.valor ?? ''} placeholder="Valor" className="input !py-2" />
-        <button className="btn-ghost !py-2">{editId ? <><Pencil size={15} /> Salvar</> : <><Plus size={15} /> Adicionar</>}</button>
-      </form>
-      <div className="card max-h-[60vh] overflow-auto">
-        <table className="w-full text-sm">
-          <thead className="sticky top-0 bg-sand text-left text-xs uppercase text-muted"><tr><th className="px-4 py-2">Unidade</th><th>m²</th><th>Valor</th><th>Status</th><th /></tr></thead>
-          <tbody>
-            {unidades.map((u) => (
-              <tr key={u.id} className="border-t border-line">
-                <td className="px-4 py-2 font-medium">{u.identificador}</td><td>{u.metragem}</td><td>{brl(u.valor)}</td>
-                <td><select value={u.status} onChange={(ev) => status(u, ev.target.value as StatusUnidade)} className="border border-line bg-ink-soft px-2 py-1 text-xs">
-                  {Object.entries(STATUS_UNIDADE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
-                <td className="space-x-3 whitespace-nowrap pr-4 text-right">
-                  <button className="text-muted hover:text-bronze" onClick={() => setEditId(u.id)}><Pencil size={13} /></button>
-                  <button className="text-muted hover:text-red-400" onClick={async () => { if (editId === u.id) setEditId(null); await supabase.from('unidades').delete().eq('id', u.id); recarregar() }}><Trash2 size={14} /></button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {materialQ.error ? <ErroConsulta erro={materialQ.error} tentarDeNovo={materialQ.refetch} /> : (
+        <form onSubmit={salvarDrive} className="card flex flex-wrap items-end gap-3 p-5">
+          <label className="min-w-64 flex-1"><span className="label">Pasta de materiais para parceiros (Google Drive)</span><input name="drive" key={materialQ.isPending ? 'carregando' : mat?.drive_url ?? ''} defaultValue={mat?.drive_url ?? ''} className="input" /></label>
+          <button className="btn-primary" disabled={materialQ.isPending}>Salvar link</button>
+        </form>
+      )}
+      {unidadesQ.isPending ? <Carregando /> : unidadesQ.error ? <ErroConsulta erro={unidadesQ.error} tentarDeNovo={unidadesQ.refetch} /> : (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-semibold">{unidades.length} unidades · {unidades.filter((u) => u.status === 'disponivel').length} disponíveis</h3>
+            <label className="btn-ghost cursor-pointer"><Upload size={15} /> Importar espelho de vendas (CSV)<input type="file" accept=".csv,.txt" className="sr-only" onChange={escolherArquivo} /></label>
+          </div>
+          {editId && <p className="flex items-center justify-between text-xs text-bronze">Editando {editando?.identificador} <button type="button" className="inline-flex items-center gap-1 text-muted" onClick={() => setEditId(null)}><X size={12} /> cancelar</button></p>}
+          <form key={editId ?? 'novo'} onSubmit={salvarUnidade} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+            <input name="id" required aria-label="Unidade" defaultValue={editando?.identificador ?? ''} placeholder="Unidade (APTO 01)" className="input !py-2" />
+            <input name="m" aria-label="Metragem" defaultValue={editando?.metragem ?? ''} placeholder="Metragem" className="input !py-2" />
+            <input name="v" aria-label="Valor" defaultValue={editando?.valor ?? ''} placeholder="Valor" className="input !py-2" />
+            <button className="btn-ghost !py-2">{editId ? <><Pencil size={15} /> Salvar</> : <><Plus size={15} /> Adicionar</>}</button>
+          </form>
+          <div className="card max-h-[60vh] overflow-auto">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 bg-sand text-left text-xs uppercase text-muted"><tr><th className="px-4 py-2">Unidade</th><th>m²</th><th>Valor</th><th>Status</th><th /></tr></thead>
+              <tbody>
+                {unidades.map((u) => (
+                  <tr key={u.id} className="border-t border-line">
+                    <td className="px-4 py-2 font-medium">{u.identificador}</td><td>{u.metragem}</td><td>{brl(u.valor)}</td>
+                    <td><select aria-label={`Status de ${u.identificador}`} value={u.status} onChange={(ev) => status(u, ev.target.value as StatusUnidade)} className="border border-line bg-ink-soft px-2 py-1 text-xs">
+                      {Object.entries(STATUS_UNIDADE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
+                    <td className="space-x-3 whitespace-nowrap pr-4 text-right">
+                      <button type="button" aria-label={`Editar unidade ${u.identificador}`} className="text-muted hover:text-bronze" onClick={() => setEditId(u.id)}><Pencil size={13} /></button>
+                      <button type="button" aria-label={`Excluir unidade ${u.identificador}`} className="text-muted hover:text-perigo"
+                        onClick={() => setAlvo({
+                          titulo: `Excluir a unidade ${u.identificador}?`,
+                          texto: 'Propostas e negócios do portal ligados a ela ficam sem unidade. Unidade com contrato não pode ser excluída: nesse caso mude o status para "Vendida".',
+                          excluir: () => excluirUnidade(u),
+                        })}><Trash2 size={14} /></button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+      <ConfirmarExclusao alvo={alvo} aoFechar={() => setAlvo(null)} depois={recarregar} />
+      <ConfirmarModal
+        aberto={!!importacao} titulo="Importar espelho de vendas" rotuloConfirmar="Importar"
+        texto={plano && (
+          <div className="grid gap-3">
+            <p>
+              Arquivo <strong>{importacao?.arquivo}</strong>: <strong>{plano.criar.length}</strong> unidade(s) nova(s),{' '}
+              <strong>{plano.atualizar.length}</strong> atualizada(s) e {plano.semMudanca} que já estão iguais.
+            </p>
+            <p>
+              <strong>Nenhuma unidade é apagada.</strong>{' '}
+              {plano.foraDoArquivo > 0 ? `As ${plano.foraDoArquivo} unidade(s) que não estão no arquivo continuam como estão. ` : ''}
+              Contratos, propostas e negócios do portal continuam ligados às unidades. Células vazias e status desconhecidos no arquivo não alteram o dado atual.
+            </p>
+            {plano.atualizar.some((a) => a.campos.valor !== undefined) && (
+              <p>Contrato em andamento cuja unidade mudar de valor precisará ter o PDF gerado de novo antes do envio para assinatura.</p>
+            )}
+            {plano.ambiguas.length > 0 && (
+              <p>Não serão alteradas, por haver mais de uma unidade com o mesmo nome no cadastro: {listaCurta(plano.ambiguas)}. Ajuste à mão.</p>
+            )}
+            {plano.statusNaoReconhecido > 0 && <p>{plano.statusNaoReconhecido} linha(s) com status desconhecido mantiveram o status atual.</p>}
+          </div>
+        )}
+        aoConfirmar={aplicarImportacao} aoFechar={() => setImportacao(null)}
+      />
     </div>
   )
 }
@@ -256,11 +407,17 @@ function Unidades({ e }: { e: EmpreendimentoCompleto }) {
 function Obra({ e }: { e: EmpreendimentoCompleto }) {
   const qc = useQueryClient()
   const [editId, setEditId] = useState<string | null>(null)
+  const [alvo, setAlvo] = useState<AlvoExclusao | null>(null)
   const [fotosRestantes, setFotosRestantes] = useState<string[]>([])
-  const { data: lista = [] } = useQuery({
+  const listaQ = useQuery({
     queryKey: ['obra', e.id],
-    queryFn: async () => (await supabase.from('obra_atualizacoes').select('*').eq('empreendimento_id', e.id).order('data', { ascending: false })).data as ObraAtualizacao[],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('obra_atualizacoes').select('*').eq('empreendimento_id', e.id).order('data', { ascending: false })
+      if (error) throw traduzirErro(error)
+      return (data ?? []) as ObraAtualizacao[]
+    },
   })
+  const lista = listaQ.data ?? []
   const editando = lista.find((o) => o.id === editId) ?? null
   const recarregar = () => qc.invalidateQueries({ queryKey: ['obra', e.id] })
 
@@ -280,7 +437,7 @@ function Obra({ e }: { e: EmpreendimentoCompleto }) {
     const { error } = editId
       ? await supabase.from('obra_atualizacoes').update(dados).eq('id', editId)
       : await supabase.from('obra_atualizacoes').insert({ empreendimento_id: e.id, ...dados })
-    if (error) return toast.error(error.message)
+    if (error) return toast.error(mensagemErro(error))
     if (!editId) form.reset()
     toast.success(editId ? 'Atualização salva' : 'Atualização publicada'); cancelar(); recarregar()
   }
@@ -290,19 +447,19 @@ function Obra({ e }: { e: EmpreendimentoCompleto }) {
         <div className="flex items-center justify-between"><h3 className="font-semibold">{editId ? 'Editar atualização' : 'Nova atualização'}</h3>
           {editId && <button type="button" onClick={cancelar} className="inline-flex items-center gap-1 text-xs text-muted"><X size={12} /> cancelar</button>}
         </div>
-        <input name="titulo" required defaultValue={editando?.titulo ?? ''} placeholder="Título (ex.: Concretagem da 5ª laje)" className="input" />
-        <textarea name="descricao" rows={3} defaultValue={editando?.descricao ?? ''} placeholder="Descrição" className="input" />
+        <input name="titulo" required aria-label="Título" defaultValue={editando?.titulo ?? ''} placeholder="Título (ex.: Concretagem da 5ª laje)" className="input" />
+        <textarea name="descricao" rows={3} aria-label="Descrição" defaultValue={editando?.descricao ?? ''} placeholder="Descrição" className="input" />
         <div className="grid grid-cols-2 gap-2">
-          <input name="pct" type="number" min={0} max={100} defaultValue={editando?.percentual ?? ''} placeholder="% concluído" className="input" />
-          <input name="data" type="date" defaultValue={editando?.data ?? ''} className="input" />
+          <input name="pct" type="number" min={0} max={100} aria-label="Percentual concluído" defaultValue={editando?.percentual ?? ''} placeholder="% concluído" className="input" />
+          <input name="data" type="date" aria-label="Data" defaultValue={editando?.data ?? ''} className="input" />
         </div>
         {editId && fotosRestantes.length > 0 && (
           <div className="grid grid-cols-4 gap-2">
-            {fotosRestantes.map((p) => (
-              <div key={p} className="group relative">
+            {fotosRestantes.map((p, i) => (
+              <div key={p} className="relative">
                 <img src={midiaUrl(p)!} alt="" className="aspect-square w-full object-cover" />
                 <button type="button" onClick={() => setFotosRestantes((fs) => fs.filter((x) => x !== p))}
-                  className="absolute right-0.5 top-0.5 bg-stone p-0.5 text-ink opacity-0 group-hover:opacity-100" aria-label="Remover foto"><X size={12} /></button>
+                  className="absolute right-0.5 top-0.5 bg-stone p-0.5 text-ink" aria-label={`Remover foto ${i + 1}`}><X size={12} /></button>
               </div>
             ))}
           </div>
@@ -310,17 +467,24 @@ function Obra({ e }: { e: EmpreendimentoCompleto }) {
         <label className="text-sm"><span className="label">{editId ? 'Adicionar mais fotos' : 'Fotos'}</span><input name="fotos" type="file" multiple accept="image/*" className="text-sm" /></label>
         <button className="btn-primary">{editId ? 'Salvar alterações' : 'Publicar'}</button>
       </form>
-      <ul className="grid content-start gap-3">
-        {lista.map((o) => (
-          <li key={o.id} className="card flex justify-between gap-4 p-4 text-sm">
-            <div><p className="font-semibold">{o.titulo} {o.percentual != null && <span className="text-bronze">· {o.percentual}%</span>}</p><p className="text-xs text-muted">{new Date(o.data).toLocaleDateString('pt-BR')} · {o.fotos.length} fotos</p></div>
-            <span className="flex shrink-0 gap-3">
-              <button className="text-muted hover:text-bronze" onClick={() => editar(o)}><Pencil size={15} /></button>
-              <button className="text-muted hover:text-red-400" onClick={async () => { if (editId === o.id) cancelar(); await supabase.from('obra_atualizacoes').delete().eq('id', o.id); recarregar() }}><Trash2 size={15} /></button>
-            </span>
-          </li>
-        ))}
-      </ul>
+      {listaQ.isPending ? <Carregando /> : listaQ.error ? <ErroConsulta erro={listaQ.error} tentarDeNovo={listaQ.refetch} /> : (
+        <ul className="grid content-start gap-3">
+          {lista.map((o) => (
+            <li key={o.id} className="card flex justify-between gap-4 p-4 text-sm">
+              <div><p className="font-semibold">{o.titulo} {o.percentual != null && <span className="text-bronze">· {o.percentual}%</span>}</p><p className="text-xs text-muted">{new Date(o.data).toLocaleDateString('pt-BR')} · {o.fotos.length} fotos</p></div>
+              <span className="flex shrink-0 gap-3">
+                <button type="button" aria-label={`Editar atualização ${o.titulo}`} className="text-muted hover:text-bronze" onClick={() => editar(o)}><Pencil size={15} /></button>
+                <button type="button" aria-label={`Excluir atualização ${o.titulo}`} className="text-muted hover:text-perigo"
+                  onClick={() => setAlvo({
+                    titulo: `Excluir a atualização "${o.titulo}"?`, texto: 'Ela deixa de aparecer no andamento da obra do portal do cliente.',
+                    excluir: async () => { await apagarLinha('obra_atualizacoes', o.id); if (editId === o.id) cancelar() },
+                  })}><Trash2 size={15} /></button>
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ConfirmarExclusao alvo={alvo} aoFechar={() => setAlvo(null)} depois={recarregar} />
     </div>
   )
 }
@@ -329,11 +493,12 @@ export default function EmpreendimentoEditor() {
   const { id } = useParams()
   const qc = useQueryClient()
   const [aba, setAba] = useState<Aba>('dados')
-  const { data: e, isLoading } = useQuery({
+  const { data: e, isLoading, error: erro, refetch } = useQuery({
     queryKey: ['admin-emp', id],
     queryFn: async () => {
-      const { data } = await supabase.from('empreendimentos')
+      const { data, error } = await supabase.from('empreendimentos')
         .select('*, empreendimento_midias(*), empreendimento_lazer(*), empreendimento_proximidades(*), empreendimento_ficha(*)').eq('id', id!).single()
+      if (error) throw traduzirErro(error)
       const x = data as EmpreendimentoCompleto
       const o = (a: { ordem: number }, b: { ordem: number }) => a.ordem - b.ordem
       x.empreendimento_midias.sort(o); x.empreendimento_lazer.sort(o); x.empreendimento_proximidades.sort(o); x.empreendimento_ficha.sort(o)
@@ -341,6 +506,7 @@ export default function EmpreendimentoEditor() {
     },
   })
   const salvo = () => { qc.invalidateQueries({ queryKey: ['admin-emp', id] }); qc.invalidateQueries({ queryKey: ['empreendimentos'] }) }
+  if (erro) return <ErroConsulta erro={erro} tentarDeNovo={refetch} />
   if (isLoading || !e) return <Carregando />
   return (
     <>

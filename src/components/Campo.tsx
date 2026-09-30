@@ -5,7 +5,7 @@ export function Campo({ label, erro, obrigatorio, children }: { label: string; e
     <label className="block">
       <span className="label">{label}{obrigatorio && <span className="text-bronze"> *</span>}</span>
       {children}
-      {erro && <span className="mt-1 block text-xs text-red-400">{erro}</span>}
+      {erro && <span className="mt-1 block text-xs text-perigo">{erro}</span>}
     </label>
   )
 }

@@ -10,9 +10,11 @@ import { Ranking } from '@/components/charts/Ranking'
 import { BarraEmpilhada, type Segmento } from '@/components/charts/BarraEmpilhada'
 import { EstoquePorEmpreendimento } from '@/components/charts/EstoquePorEmpreendimento'
 import { Carregando } from '@/components/Estados'
+import { ErroConsulta } from '@/components/app/Consulta'
+import { traduzirErro } from '@/lib/erros'
 import { Titulo } from './ui'
 
-const CORES_PROPOSTA: Record<string, string> = { enviada: 'var(--color-sand)', em_analise: 'var(--color-bronze)', aprovada: 'var(--color-sage)', recusada: '#fca5a5' }
+const CORES_PROPOSTA: Record<string, string> = { enviada: 'var(--color-sand)', em_analise: 'var(--color-bronze)', aprovada: 'var(--color-sage)', recusada: 'var(--color-perigo)' }
 
 function Cartao({ titulo, subtitulo, children }: { titulo: string; subtitulo?: string; children: React.ReactNode }) {
   return (
@@ -31,7 +33,7 @@ function Tile({ label, valor, delta }: { label: string; valor: number | string; 
       <div className="mt-2 flex items-end justify-between gap-2">
         <p className="display text-5xl">{valor}</p>
         {delta != null && Number.isFinite(delta) && (
-          <span className={`mb-1.5 flex items-center gap-1 text-xs font-semibold ${delta >= 0 ? 'text-sage' : 'text-red-300'}`}>
+          <span className={`mb-1.5 flex items-center gap-1 text-xs font-semibold ${delta >= 0 ? 'text-sage' : 'text-perigo'}`}>
             {delta >= 0 ? <TrendingUp size={14} /> : <TrendingDown size={14} />} {Math.abs(delta)}%
           </span>
         )}
@@ -44,13 +46,13 @@ export default function Relatorios() {
   const [periodo, setPeriodo] = useState<ChavePeriodo>('30d')
   const dias = PERIODOS.find((p) => p.chave === periodo)!.dias
 
-  const { data: r, isLoading } = useQuery({
+  const { data: r, isLoading, error: erro, refetch } = useQuery({
     queryKey: ['relatorio', periodo],
     queryFn: async () => {
       // calculado aqui (não no corpo do componente): roda na busca, não a cada render
       const desde = new Date(Date.now() - dias * 86_400_000).toISOString()
       const { data, error } = await supabase.rpc('relatorio', { p_desde: desde })
-      if (error) throw error
+      if (error) throw traduzirErro(error, 'relatorio')
       return data as Relatorio
     },
   })
@@ -78,7 +80,7 @@ export default function Relatorios() {
         Relatórios
       </Titulo>
 
-      {isLoading || !r ? <Carregando /> : (
+      {erro ? <ErroConsulta erro={erro} tentarDeNovo={refetch} /> : isLoading || !r ? <Carregando /> : (
         <div className="grid gap-6">
           <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <Tile label={`Leads (${PERIODOS.find((p) => p.chave === periodo)!.label.toLowerCase()})`} valor={r.leads} delta={deltaLeads} />

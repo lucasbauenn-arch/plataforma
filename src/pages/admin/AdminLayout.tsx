@@ -1,44 +1,45 @@
-import { NavLink, Outlet, Link } from 'react-router-dom'
-import { LayoutDashboard, Building2, Users, FileText, UserCheck, Inbox, LogOut, ExternalLink, BarChart3 } from 'lucide-react'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { useAuth } from '@/lib/auth'
-import { Logo } from '@/components/Logo'
+import { useEscopo } from '@/lib/escopo'
+import { menuDoEscopo, situacaoAcesso } from '@/lib/menu'
+import { useInatividade } from '@/hooks/useInatividade'
+import { Carregando } from '@/components/Estados'
+import { BarraLateral } from '@/components/app/BarraLateral'
+import { EstadoAcesso } from '@/components/app/EstadoAcesso'
 
-const itens = [
-  { to: '/admin', label: 'Visão geral', I: LayoutDashboard, end: true },
-  { to: '/admin/relatorios', label: 'Relatórios', I: BarChart3 },
-  { to: '/admin/empreendimentos', label: 'Empreendimentos', I: Building2 },
-  { to: '/admin/parceiros', label: 'Parceiros', I: UserCheck },
-  { to: '/admin/propostas', label: 'Propostas', I: FileText },
-  { to: '/admin/clientes', label: 'Clientes (portal)', I: Users },
-  { to: '/admin/leads', label: 'Leads do site', I: Inbox },
-]
+const SEGURANCA = '/admin/seguranca'
 
+/** Layout do admin (admin e super). O menu vem de `meu_escopo().permissoes`; com 2FA exigida e sessão aal1, só Segurança abre. */
 export default function AdminLayout() {
-  const { profile, sair } = useAuth()
+  const { profile } = useAuth()
+  const { escopo, carregando, erro, recarregar } = useEscopo()
+  const { pathname } = useLocation()
+  useInatividade()
+
+  if (carregando) return <div className="grid min-h-svh place-items-center bg-ink"><Carregando /></div>
+  if (erro || !escopo) return <EstadoAcesso tipo="erro_escopo" detalhe={erro?.message} tentarDeNovo={recarregar} />
+
+  const situacao = situacaoAcesso(escopo)
+  // desligado (inclusive interno com o token ainda válido): "Acesso encerrado", como na área de parceiros
+  if (situacao === 'inativo') return <EstadoAcesso tipo="inativo" />
+  if (situacao === 'mfa_pendente' && !pathname.startsWith(SEGURANCA)) return <Navigate to={SEGURANCA} replace />
+  if (situacao !== 'liberado' && situacao !== 'mfa_pendente') return <EstadoAcesso tipo="nao_liberado" />
+
   return (
     <div className="min-h-svh bg-ink lg:grid lg:grid-cols-[250px_1fr]">
-      <aside className="border-b border-line bg-ink-soft text-stone lg:sticky lg:top-0 lg:h-svh lg:border-b-0">
-        <div className="flex items-center justify-between p-5 lg:block">
-          <Link to="/"><Logo /></Link>
-          <p className="hidden text-xs text-stone/50 lg:mt-2 lg:block">Painel administrativo</p>
-        </div>
-        <nav className="flex gap-1 overflow-x-auto px-3 pb-3 lg:flex-col lg:px-3">
-          {itens.map(({ to, label, I, end }) => (
-            <NavLink key={to} to={to} end={end}
-              className={({ isActive }) => `flex shrink-0 items-center gap-3 px-3 py-2.5 text-sm ${isActive ? 'bg-white/10 text-white' : 'text-stone/70 hover:text-white'}`}>
-              <I size={17} /> {label}
-            </NavLink>
-          ))}
-        </nav>
-        <div className="hidden p-5 text-sm lg:absolute lg:bottom-0 lg:block">
-          <p className="text-stone/60">{profile?.nome || profile?.email}</p>
-          <div className="mt-3 flex gap-4">
-            <Link to="/" className="flex items-center gap-1 text-stone/60 hover:text-white"><ExternalLink size={14} /> Site</Link>
-            <button onClick={sair} className="flex items-center gap-1 text-stone/60 hover:text-white"><LogOut size={14} /> Sair</button>
-          </div>
-        </div>
-      </aside>
-      <main className="min-w-0 p-5 sm:p-8 lg:p-10"><Outlet /></main>
+      <BarraLateral
+        itens={menuDoEscopo('admin', escopo)}
+        subtitulo={escopo.super ? 'Painel administrativo · Super' : 'Painel administrativo'}
+        nome={profile?.nome || profile?.email}
+      />
+      <main className="min-w-0 p-5 sm:p-8 lg:p-10">
+        {situacao === 'mfa_pendente' && (
+          <p className="mb-6 border border-bronze/40 bg-bronze/10 px-4 py-3 text-sm">
+            A verificação em duas etapas é obrigatória para a equipe. Conclua a configuração abaixo para liberar o painel.
+          </p>
+        )}
+        <Outlet />
+      </main>
     </div>
   )
 }

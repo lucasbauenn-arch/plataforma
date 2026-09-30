@@ -1,73 +1,114 @@
-// Admin convida parceiros (ex.: os do WordPress, cujas senhas não migram): cria o usuário já aprovado e devolve
-// o link para definir a senha — o admin manda pelo WhatsApp, ou o Supabase envia por e-mail (exige SMTP próprio).
-// POST { parceiros: [{ nome, email, telefone?, creci?, imobiliaria? }], enviarEmail?: boolean, origem: string }
-//   -> { resultados: [{ email, nome, telefone, status: 'convidado' | 'ja_existe' | 'erro', link?, erro? }] }
-import { createClient } from "npm:@supabase/supabase-js@2";
+// Edge Function convidar-parceiros (docs/ARQUITETURA_EXPANSAO.md §6.2; §10.1: só a versão nova, sem o corpo v1).
+//
+// POST { parceiro_ids: uuid[] (1..50), modo: "email" | "link", origem?: string }
+//   -> 200 { resultados: [{ parceiro_id, nome, email, status, mensagem, link? }] }
+// Quem pode convidar quem é decidido SEMPRE pela RPC rede_pode_convidar, chamada com o JWT de quem pediu (matriz,
+// escopo, aal2 e o limite por hora de respostas "email_em_uso" aplicados pelo banco). A service role (clienteAdmin) só:
+//   - cria a conta no Auth (generateLink invite, sem e-mail) e envia o e-mail (inviteUserByEmail) — os metadados levam
+//     só o nome, nunca papel ou cadeia;
+//   - chama as RPCs de sistema rede_vincular_login (aceita só o perfil recém-criado por ESTE convite) e
+//     rede_registrar_convite (auditoria de quem gerou, para quem e o modo; nunca o link);
+//   - apaga a conta que ESTE convite criou quando o vínculo falha, e só se ela continua sem vínculo e sem uso
+//     (lê parceiros.profile_id e o usuário no Auth para decidir; não decide permissão) [WP1R-02].
+// A ordem (conta sem e-mail → vínculo → auditoria → entrega) e as situações estão em ./fluxo.ts (módulo puro, com
+// testes em src/lib/convites.test.ts):
+//   novo          → cria a conta, vincula ao parceiro (papel = tipo; acesso aprovado), audita e entrega;
+//   reenviar      → conta deste parceiro que nunca entrou: novo convite para a MESMA conta (o id é conferido);
+//   email_em_uso  → o e-mail é de outra conta: nenhum link;
+//   ja_ativo      → já entrou: nenhum link ("use Esqueci a senha");
+//   sem_email / indisponivel → nada a fazer; limite → muitas respostas "email_em_uso" na última hora.
+// O link devolvido (modo "link", só com rede.convite_por_link) NÃO é o action_link do Auth: é
+// <origem>/parceiros/definir-senha?token_hash=<hashed_token>&type=invite, e a página só consome o token quando a
+// pessoa clica em "Continuar" (pré-visualização do WhatsApp e antivírus de e-mail não queimam o convite). No modo
+// "email" o Auth envia o template supabase/templates/convite.html, que monta o mesmo endereço com {{ .TokenHash }}.
+// O token do Supabase é aleatório, de uso único e vale 24 h (otp_expiry = 86400).
+import { type SupabaseClient } from "../_shared/supabase-js.ts";
+import { criarRota, lerJson, mensagemSegura, origemPermitida } from "../_shared/http.ts";
+import { corsDoSite } from "../_shared/ambiente.ts";
+import { type Autenticado, clienteAdmin, exigirUsuario } from "../_shared/supabase.ts";
+import {
+  convidarUm, type ContaAuth, type Dependencias, type ErroApi, lerPedido, MENSAGENS, type PodeConvidar, type Resultado,
+} from "./fluxo.ts";
 
-const cors = {
-  "Access-Control-Allow-Origin": "*",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
-};
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: { ...cors, "Content-Type": "application/json" } });
+const NOME = "convidar-parceiros";
 
-const chave = (novas: string, legada: string) => {
-  try {
-    const k = JSON.parse(Deno.env.get(novas) ?? "{}").default;
-    if (k) return k as string;
-  } catch { /* usa a legada */ }
-  return Deno.env.get(legada)!;
-};
+function registrarErro(etapa: string, parceiroId: string, erro: unknown) {
+  // nunca o e-mail nem o link: só a etapa, o parceiro e a mensagem limpa
+  console.error(`[${NOME}] ${etapa} (parceiro ${parceiroId}): ${mensagemSegura(erro)}`);
+}
 
-// origens aceitas para o link de retorno (as mesmas liberadas no Auth)
-const ORIGENS = [/^https:\/\/(www\.)?arkenincorporadora\.com\.br$/, /^http:\/\/localhost:\d+$/];
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const erroApi = (e: { code?: string | null; message?: string | null; details?: string | null } | null | undefined): ErroApi =>
+  e ? { code: e.code ?? null, message: e.message ?? null, details: e.details ?? null } : null;
 
-type Parceiro = { nome?: string; email?: string; telefone?: string; creci?: string; imobiliaria?: string };
+const conta = (u: ContaAuth | null | undefined): ContaAuth | null =>
+  u ? {
+    id: u.id, created_at: u.created_at ?? null, invited_at: u.invited_at ?? null,
+    last_sign_in_at: u.last_sign_in_at ?? null, email_confirmed_at: u.email_confirmed_at ?? null,
+  } : null;
 
-Deno.serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response("ok", { headers: cors });
-  if (req.method !== "POST") return json({ erro: "Método não permitido" }, 405);
+function dependencias(quem: Autenticado, admin: SupabaseClient): Dependencias {
+  return {
+    podeConvidar: async (id) => {
+      const r = await quem.db.rpc("rede_pode_convidar", { p_parceiro_id: id });
+      return { data: (r.data as PodeConvidar | null) ?? null, error: erroApi(r.error) };
+    },
+    gerarConvite: async (email, nome, redirectTo) => {
+      const g = await admin.auth.admin.generateLink({ type: "invite", email, options: { data: { nome }, redirectTo } });
+      return { conta: conta(g.data?.user), tokenHash: g.data?.properties?.hashed_token ?? null, error: erroApi(g.error) };
+    },
+    enviarConvite: async (email, nome, redirectTo) => {
+      const c = await admin.auth.admin.inviteUserByEmail(email, { data: { nome }, redirectTo });
+      return { conta: conta(c.data?.user), error: erroApi(c.error) };
+    },
+    vincular: async (id, contaId) => {
+      const v = await admin.rpc("rede_vincular_login", { p_parceiro_id: id, p_profile_id: contaId });
+      return { error: erroApi(v.error) };
+    },
+    registrar: async (id, modo) => {
+      const a = await admin.rpc("rede_registrar_convite", { p_parceiro_id: id, p_modo: modo, p_ator: quem.usuario.id });
+      return { error: erroApi(a.error) };
+    },
+    vinculoDaConta: async (contaId) => {
+      const r = await admin.from("parceiros").select("id").eq("profile_id", contaId).maybeSingle();
+      return { parceiroId: (r.data as { id: string } | null)?.id ?? null, error: erroApi(r.error) };
+    },
+    buscarConta: async (contaId) => {
+      const r = await admin.auth.admin.getUserById(contaId);
+      return { conta: conta(r.data?.user), error: erroApi(r.error) };
+    },
+    apagarConta: async (contaId) => {
+      const r = await admin.auth.admin.deleteUser(contaId);
+      return { error: erroApi(r.error) };
+    },
+    agora: () => Date.now(),
+    registrarErro,
+  };
+}
 
-  const admin = createClient(Deno.env.get("SUPABASE_URL")!, chave("SUPABASE_SECRET_KEYS", "SUPABASE_SERVICE_ROLE_KEY"), {
-    auth: { persistSession: false, autoRefreshToken: false },
-  });
+Deno.serve(criarRota({ nome: NOME, cors: corsDoSite() }, async (req, r) => {
+  const quem = await exigirUsuario(req, r);
+  if (quem instanceof Response) return quem;
 
-  // só admin (verify_jwt desligado: a checagem é feita aqui, também funciona com as chaves novas)
-  const jwt = req.headers.get("Authorization")?.replace(/^Bearer\s+/i, "") ?? "";
-  const { data: quem } = await admin.auth.getUser(jwt);
-  if (!quem?.user) return json({ erro: "Faça login como administrador" }, 401);
-  const { data: perfil } = await admin.from("profiles").select("papel").eq("id", quem.user.id).maybeSingle();
-  if (perfil?.papel !== "admin") return json({ erro: "Apenas administradores podem convidar parceiros" }, 403);
+  const corpo = await lerJson(req);
+  if (!corpo.ok) return r.erro(corpo.status, corpo.erro, { codigo: corpo.codigo });
+  const pedido = lerPedido(corpo.valor);
+  if (!pedido.ok) return r.erro(422, pedido.erro);
+  const { ids, modo, origem } = pedido.valor;
 
-  const { parceiros, enviarEmail = false, origem } = await req.json().catch(() => ({})) as
-    { parceiros?: Parceiro[]; enviarEmail?: boolean; origem?: string };
-  if (!Array.isArray(parceiros) || parceiros.length === 0) return json({ erro: "Nenhum parceiro informado" }, 400);
-  if (parceiros.length > 200) return json({ erro: "Máximo de 200 parceiros por vez" }, 400);
-  const base = origem && ORIGENS.some((r) => r.test(origem)) ? origem : "https://arkenincorporadora.com.br";
-  const redirectTo = `${base}/parceiros/nova-senha`;
+  // o link aponta para uma origem da lista do CORS (SITE_URL, com/sem www; localhost só fora de produção)
+  const cors = corsDoSite();
+  const base = origem && origemPermitida(origem, cors) ? origem : cors.origens[0];
 
-  const resultados = [];
-  for (const p of parceiros) {
-    const email = (p.email ?? "").trim().toLowerCase();
-    const nome = (p.nome ?? "").trim();
-    const base = { email, nome, telefone: p.telefone?.trim() || null };
-    if (!EMAIL.test(email)) { resultados.push({ ...base, status: "erro", erro: "E-mail inválido" }); continue; }
-
-    const dados = { nome, telefone: p.telefone?.trim() || null, creci: p.creci?.trim() || null, imobiliaria: p.imobiliaria?.trim() || null };
-    const r = enviarEmail
-      ? await admin.auth.admin.inviteUserByEmail(email, { data: dados, redirectTo })
-      : await admin.auth.admin.generateLink({ type: "invite", email, options: { data: dados, redirectTo } });
-
-    if (r.error) {
-      const jaExiste = /already|registered|exists/i.test(r.error.message);
-      resultados.push({ ...base, status: jaExiste ? "ja_existe" : "erro", erro: jaExiste ? "Já tem conta — use \"Esqueci a senha\"" : r.error.message });
-      continue;
+  const deps = dependencias(quem, clienteAdmin());
+  const resultados: Resultado[] = [];
+  // um por vez: respeita o limite de e-mails do Auth e mantém a ordem pedida
+  for (const id of ids) {
+    try {
+      resultados.push(await convidarUm(deps, id, modo, base));
+    } catch (erro) {
+      registrarErro("inesperado", id, erro);
+      resultados.push({ parceiro_id: id, nome: null, email: null, status: "erro", mensagem: MENSAGENS.erro });
     }
-    // convidado pela Arken já entra aprovado
-    await admin.from("profiles").update({ status_parceiro: "aprovado" }).eq("id", r.data.user!.id);
-    const link = "properties" in r.data ? r.data.properties?.action_link : undefined;
-    resultados.push({ ...base, status: "convidado", link: enviarEmail ? undefined : link });
   }
-  return json({ resultados });
-});
+  return r.json({ resultados });
+}));

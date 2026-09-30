@@ -1,0 +1,162 @@
+[
+  {
+    "descricao": "doc §8.5: 500.000 × 30% − 50.000, 60×, 8,5%",
+    "entrada": {"forma": "parcelado", "valor": 500000, "perc_aporte": 30, "entrada": 50000, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 500000, "perc_aporte": 30, "valor_aporte": 150000, "valor_entrada": 50000, "base_parcelada": 100000, "valor_restante": 350000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 1808.33, "valor_total_parcelas": 108500, "residuo": 0.2, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "doc §8.5: 300.000 × 30% − 10.000 = base 80.000; 60×",
+    "entrada": {"forma": "parcelado", "valor": 300000, "perc_aporte": 30, "entrada": 10000, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 300000, "perc_aporte": 30, "valor_aporte": 90000, "valor_entrada": 10000, "base_parcelada": 80000, "valor_restante": 210000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 1446.67, "valor_total_parcelas": 86800, "residuo": -0.2, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "limite mínimo de parcelas (12) aceito",
+    "entrada": {"forma": "parcelado", "valor": 250000, "perc_aporte": 20, "entrada": 0, "n_parcelas": 12, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 250000, "perc_aporte": 20, "valor_aporte": 50000, "valor_entrada": 0, "base_parcelada": 50000, "valor_restante": 200000, "n_parcelas": 12, "taxa_aporte": 8.5, "valor_parcela": 4520.83, "valor_total_parcelas": 54250, "residuo": 0.04, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "limite máximo de parcelas (360) aceito",
+    "entrada": {"forma": "parcelado", "valor": 1234567.89, "perc_aporte": 25.5, "entrada": 12345.67, "n_parcelas": 360, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 1234567.89, "perc_aporte": 25.5, "valor_aporte": 314814.81, "valor_entrada": 12345.67, "base_parcelada": 302469.14, "valor_restante": 919753.08, "n_parcelas": 360, "taxa_aporte": 8.5, "valor_parcela": 911.61, "valor_total_parcelas": 328179.02, "residuo": -0.58, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "abaixo do mínimo de parcelas (11)",
+    "entrada": {"forma": "parcelado", "valor": 250000, "perc_aporte": 20, "entrada": 0, "n_parcelas": 11, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["n_parcelas_fora_do_limite"]}
+  },
+  {
+    "descricao": "acima do máximo de parcelas (361)",
+    "entrada": {"forma": "parcelado", "valor": 250000, "perc_aporte": 20, "entrada": 0, "n_parcelas": 361, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["n_parcelas_fora_do_limite"]}
+  },
+  {
+    "descricao": "parcelado sem número de parcelas",
+    "entrada": {"forma": "parcelado", "valor": 250000, "perc_aporte": 20, "entrada": 0, "n_parcelas": null, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["n_parcelas_fora_do_limite"]}
+  },
+  {
+    "descricao": "entrada maior que o aporte",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 10, "entrada": 10000.01, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["entrada_maior_que_aporte"]}
+  },
+  {
+    "descricao": "entrada igual ao aporte (base zero)",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 10, "entrada": 10000, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 100000, "perc_aporte": 10, "valor_aporte": 10000, "valor_entrada": 10000, "base_parcelada": 0, "valor_restante": 90000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 0, "valor_total_parcelas": 0, "residuo": 0, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "flexível sem mínimo configurado",
+    "entrada": {"forma": "flexivel", "valor": 400000, "perc_aporte": 35, "entrada": 20000, "n_parcelas": null, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["flexivel_sem_minimo"]}
+  },
+  {
+    "descricao": "flexível com mínimo configurado",
+    "entrada": {"forma": "flexivel", "valor": 400000, "perc_aporte": 35, "entrada": 20000, "n_parcelas": null, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": 2500},
+    "esperado": {"valor_imovel": 400000, "perc_aporte": 35, "valor_aporte": 140000, "valor_entrada": 20000, "base_parcelada": 120000, "valor_restante": 260000, "n_parcelas": null, "taxa_aporte": null, "valor_parcela": null, "valor_total_parcelas": null, "residuo": null, "valor_minimo_flex": 2500}
+  },
+  {
+    "descricao": "flexível ignora o número de parcelas",
+    "entrada": {"forma": "flexivel", "valor": 400000, "perc_aporte": 35, "entrada": 20000, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": 2500},
+    "esperado": {"valor_imovel": 400000, "perc_aporte": 35, "valor_aporte": 140000, "valor_entrada": 20000, "base_parcelada": 120000, "valor_restante": 260000, "n_parcelas": null, "taxa_aporte": null, "valor_parcela": null, "valor_total_parcelas": null, "residuo": null, "valor_minimo_flex": 2500}
+  },
+  {
+    "descricao": "valor abaixo do mínimo configurado",
+    "entrada": {"forma": "parcelado", "valor": 90000, "perc_aporte": 30, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": 100000, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["valor_abaixo_do_minimo"]}
+  },
+  {
+    "descricao": "valor igual ao mínimo configurado",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 30, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": 100000, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 100000, "perc_aporte": 30, "valor_aporte": 30000, "valor_entrada": 0, "base_parcelada": 30000, "valor_restante": 70000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 542.5, "valor_total_parcelas": 32550, "residuo": 0, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "percentual zero",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 0, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["percentual_invalido"]}
+  },
+  {
+    "descricao": "percentual acima de 100",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 100.0001, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["percentual_invalido"]}
+  },
+  {
+    "descricao": "percentual de 100",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 100, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 100000, "perc_aporte": 100, "valor_aporte": 100000, "valor_entrada": 0, "base_parcelada": 100000, "valor_restante": 0, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 1808.33, "valor_total_parcelas": 108500, "residuo": 0.2, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "entrada negativa",
+    "entrada": {"forma": "parcelado", "valor": 100000, "perc_aporte": 30, "entrada": -1, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["entrada_invalida"]}
+  },
+  {
+    "descricao": "produto sem valor",
+    "entrada": {"forma": "parcelado", "valor": null, "perc_aporte": 30, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["produto_sem_valor"]}
+  },
+  {
+    "descricao": "vários motivos juntos",
+    "entrada": {"forma": "flexivel", "valor": null, "perc_aporte": 0, "entrada": -5, "n_parcelas": null, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["produto_sem_valor", "percentual_invalido", "entrada_invalida", "flexivel_sem_minimo"]}
+  },
+  {
+    "descricao": "forma inválida",
+    "entrada": {"forma": null, "valor": 100000, "perc_aporte": 30, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"motivos": ["forma_invalida"]}
+  },
+  {
+    "descricao": "arredondamento: dízimas com 4 casas no percentual",
+    "entrada": {"forma": "parcelado", "valor": 333333.33, "perc_aporte": 33.3333, "entrada": 1234.56, "n_parcelas": 37, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 333333.33, "perc_aporte": 33.3333, "valor_aporte": 111111, "valor_entrada": 1234.56, "base_parcelada": 109876.44, "valor_restante": 222222.33, "n_parcelas": 37, "taxa_aporte": 8.5, "valor_parcela": 3222.05, "valor_total_parcelas": 119215.94, "residuo": 0.09, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "taxa zero",
+    "entrada": {"forma": "parcelado", "valor": 250000, "perc_aporte": 50, "entrada": 0, "n_parcelas": 120, "taxa": 0, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 250000, "perc_aporte": 50, "valor_aporte": 125000, "valor_entrada": 0, "base_parcelada": 125000, "valor_restante": 125000, "n_parcelas": 120, "taxa_aporte": 0, "valor_parcela": 1041.67, "valor_total_parcelas": 125000, "residuo": -0.4, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "taxa com 4 casas",
+    "entrada": {"forma": "parcelado", "valor": 777777.77, "perc_aporte": 12.3456, "entrada": 5000.05, "n_parcelas": 97, "taxa": 8.1234, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 777777.77, "perc_aporte": 12.3456, "valor_aporte": 96021.33, "valor_entrada": 5000.05, "base_parcelada": 91021.28, "valor_restante": 681756.44, "n_parcelas": 97, "taxa_aporte": 8.1234, "valor_parcela": 1014.59, "valor_total_parcelas": 98415.3, "residuo": 0.07, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "metade exata: 10,005 vira 10,01 (metade para longe do zero)",
+    "entrada": {"forma": "parcelado", "valor": 1000, "perc_aporte": 20, "entrada": 79.94, "n_parcelas": 12, "taxa": 0, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 1000, "perc_aporte": 20, "valor_aporte": 200, "valor_entrada": 79.94, "base_parcelada": 120.06, "valor_restante": 800, "n_parcelas": 12, "taxa_aporte": 0, "valor_parcela": 10.01, "valor_total_parcelas": 120.06, "residuo": -0.06, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "valores grandes",
+    "entrada": {"forma": "parcelado", "valor": 99999999.99, "perc_aporte": 100, "entrada": 0, "n_parcelas": 360, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 99999999.99, "perc_aporte": 100, "valor_aporte": 99999999.99, "valor_entrada": 0, "base_parcelada": 99999999.99, "valor_restante": 0, "n_parcelas": 360, "taxa_aporte": 8.5, "valor_parcela": 301388.89, "valor_total_parcelas": 108499999.99, "residuo": -0.41, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "percentual com 5 casas é arredondado a 4",
+    "entrada": {"forma": "parcelado", "valor": 500000, "perc_aporte": 30.00005, "entrada": 0, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 500000, "perc_aporte": 30.0001, "valor_aporte": 150000.5, "valor_entrada": 0, "base_parcelada": 150000.5, "valor_restante": 349999.5, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 2712.51, "valor_total_parcelas": 162750.54, "residuo": -0.06, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "entrada com 3 casas é arredondada a 2",
+    "entrada": {"forma": "parcelado", "valor": 500000, "perc_aporte": 30, "entrada": 1000.005, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 500000, "perc_aporte": 30, "valor_aporte": 150000, "valor_entrada": 1000.01, "base_parcelada": 148999.99, "valor_restante": 350000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 2694.42, "valor_total_parcelas": 161664.99, "residuo": -0.21, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "aporte que arredonda para cima",
+    "entrada": {"forma": "parcelado", "valor": 123456.78, "perc_aporte": 17.5, "entrada": 0, "n_parcelas": 48, "taxa": 9.75, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 123456.78, "perc_aporte": 17.5, "valor_aporte": 21604.94, "valor_entrada": 0, "base_parcelada": 21604.94, "valor_restante": 101851.84, "n_parcelas": 48, "taxa_aporte": 9.75, "valor_parcela": 493.99, "valor_total_parcelas": 23711.42, "residuo": -0.1, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "resíduo negativo",
+    "entrada": {"forma": "parcelado", "valor": 300000, "perc_aporte": 30, "entrada": 10000, "n_parcelas": 60, "taxa": 8.5, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 300000, "perc_aporte": 30, "valor_aporte": 90000, "valor_entrada": 10000, "base_parcelada": 80000, "valor_restante": 210000, "n_parcelas": 60, "taxa_aporte": 8.5, "valor_parcela": 1446.67, "valor_total_parcelas": 86800, "residuo": -0.2, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "parcela mínima e máxima iguais",
+    "entrada": {"forma": "parcelado", "valor": 180000, "perc_aporte": 40, "entrada": 12000, "n_parcelas": 24, "taxa": 8.5, "parcela_minima": 24, "parcela_maxima": 24, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 180000, "perc_aporte": 40, "valor_aporte": 72000, "valor_entrada": 12000, "base_parcelada": 60000, "valor_restante": 108000, "n_parcelas": 24, "taxa_aporte": 8.5, "valor_parcela": 2712.5, "valor_total_parcelas": 65100, "residuo": 0, "valor_minimo_flex": null}
+  },
+  {
+    "descricao": "taxa alta e prazo curto",
+    "entrada": {"forma": "parcelado", "valor": 87654.32, "perc_aporte": 55.5555, "entrada": 3333.33, "n_parcelas": 13, "taxa": 17.25, "parcela_minima": 12, "parcela_maxima": 360, "valor_minimo": null, "valor_minimo_flex": null},
+    "esperado": {"valor_imovel": 87654.32, "perc_aporte": 55.5555, "valor_aporte": 48696.8, "valor_entrada": 3333.33, "base_parcelada": 45363.47, "valor_restante": 38957.52, "n_parcelas": 13, "taxa_aporte": 17.25, "valor_parcela": 4091.44, "valor_total_parcelas": 53188.67, "residuo": -0.05, "valor_minimo_flex": null}
+  }
+]

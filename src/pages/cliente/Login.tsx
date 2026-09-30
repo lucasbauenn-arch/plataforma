@@ -6,11 +6,13 @@ import { useAuth } from '@/lib/auth'
 import { mascaraCpf, cpfValido, waLink } from '@/lib/format'
 import { EMPRESA } from '@/lib/constants'
 import { Campo } from '@/components/Campo'
+import { cpfDev } from '@/lib/dev'
 import { AuthCard } from '../parceiros/AuthCard'
 
 // login só com CPF (decisão do cliente) — a Edge Function cliente-login limita tentativas e registra os acessos
 export default function LoginCliente() {
-  const [cpf, setCpf] = useState('')
+  // em dev, já vem preenchido com o CPF do cliente de teste de .env.development.local (vazio no build)
+  const [cpf, setCpf] = useState(cpfDev ? mascaraCpf(cpfDev) : '')
   const [enviando, setEnviando] = useState(false)
   const nav = useNavigate()
   const { profile } = useAuth()

@@ -14,7 +14,11 @@
     "verbatimModuleSyntax": true,
     "moduleDetection": "force",
     "noEmit": true,
-    "paths": { "@/*": ["./src/*"] },
+    "paths": {
+      "@/*": ["./src/*"],
+      "@shared/simulacao": ["./supabase/functions/_shared/simulacao.ts"],
+      "@shared/modelo-contrato": ["./supabase/functions/_shared/modelo-contrato.ts"]
+    },
     "jsx": "react-jsx",
 
     /* Linting */

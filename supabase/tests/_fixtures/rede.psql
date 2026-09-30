@@ -1,0 +1,250 @@
+-- Fixture comum dos testes pgTAP (docs/ARQUITETURA_EXPANSAO.md §8.5). Não é coletada como teste (extensão .psql).
+-- Uso, logo depois do "begin;" de cada arquivo (o rollback do fim desfaz tudo):
+--     \ir _fixtures/rede.psql
+-- Tudo é inserido como postgres, direto nas tabelas (nunca por RPC de outro pacote). Os gatilhos derivam a cadeia,
+-- abrem os históricos de vínculo e copiam o nome para profiles.
+--
+-- REDE
+--   Imobiliária A (imobiliaria('a'))            Imobiliária B (imobiliaria('b'))
+--     IA   usuário tipo imobiliaria               IB   usuário tipo imobiliaria
+--     GA1  gerente ─┬─ CA1a  corretor             GB1  gerente ── CB1a corretor
+--                   ├─ inativo   corretor inativado (status 'inativo', vínculo inativado, sem código)
+--                   └─ bloqueado corretor com perfil 'bloqueado' (vínculo ativo, tem o cliente c5)
+--     GA2  gerente ─── CA2a  corretor
+--   Casa (semente da 04): configuracao_geral.imobiliaria_casa_id / gerente_casa_id / corretor_casa_id.
+-- CLIENTES (todos PF, CPF válido, origem 'cadastro_interno', etapa 'novo_contato', com consentimento 'declarado')
+--   c1 → CA1a (titular no portal: usuário titular_c1, portal_liberado = true)
+--   c2 → CA2a   c3 → CB1a   c4 → GA1 (gerente como corretor, A1)   c5 → bloqueado   (portal_liberado = false)
+-- USUÁRIOS (auth.users + profiles; parceiros aprovados com o termo de parceiro vigente aceito)
+--   admin, super, ia, ga1, ga2, ca1a, ca2a, ib, gb1, cb1a, inativo, bloqueado,
+--   pendente (autocadastro: papel 'parceiro', status 'pendente', sem linha em parceiros), titular_c1 (papel 'cliente')
+--
+-- AJUDANTES (em pg_temp; chame sempre com o prefixo pg_temp.)
+--   pg_temp.usuario('ga1')         → uuid do usuário/perfil       pg_temp.parceiro('ga1') → parceiros.id
+--   pg_temp.cliente('c1')          → clientes.id                  pg_temp.imobiliaria('a') → imobiliarias.id
+--   pg_temp.entrar('ga1' [, 'aal2']) → role authenticated + request.jwt.claims (sub, role, aal)
+--   pg_temp.entrar_anon() / pg_temp.entrar_servico() / pg_temp.sair() (volta a postgres, sem claims)
+--   pg_temp.como('ga1' [, 'aal2'])  → papel postgres com o JWT do usuário: simula o que roda dentro de uma RPC
+--                                    security definer chamada por ele (para testar funções internas, sem grant)
+--     As cinco devolvem texto vazio (uma linha em branco na saída, que o pg_prove ignora): chame com select.
+--   pg_temp.erro('<sql>')          → null se o SQL rodar; senão {sqlstate, mensagem, detalhe} (detalhe em jsonb
+--                                    quando for JSON), para conferir o detail dos erros de negócio (P0001).
+-- CPFs válidos ainda livres para os testes: 12345671483, 12345671564, 12345671645, 12345671726, 12345671807,
+--   12345671998, 12345672021. CNPJs válidos livres: 11222335000170, 11222336000115.
+
+reset role;
+
+-- ============ AJUDANTES ============
+create function pg_temp.usuario(p_nome text) returns uuid language plpgsql immutable as $$
+declare
+  v uuid := case p_nome
+    when 'admin'      then 'a0000000-0000-4000-8000-000000000001'
+    when 'super'      then 'a0000000-0000-4000-8000-000000000002'
+    when 'ia'         then 'a0000000-0000-4000-8000-000000000011'
+    when 'ga1'        then 'a0000000-0000-4000-8000-000000000012'
+    when 'ga2'        then 'a0000000-0000-4000-8000-000000000013'
+    when 'ca1a'       then 'a0000000-0000-4000-8000-000000000014'
+    when 'ca2a'       then 'a0000000-0000-4000-8000-000000000015'
+    when 'ib'         then 'a0000000-0000-4000-8000-000000000021'
+    when 'gb1'        then 'a0000000-0000-4000-8000-000000000022'
+    when 'cb1a'       then 'a0000000-0000-4000-8000-000000000023'
+    when 'titular_c1' then 'a0000000-0000-4000-8000-000000000031'
+    when 'inativo'    then 'a0000000-0000-4000-8000-000000000041'
+    when 'bloqueado'  then 'a0000000-0000-4000-8000-000000000042'
+    when 'pendente'   then 'a0000000-0000-4000-8000-000000000043'
+  end::uuid;
+begin
+  if v is null then
+    raise exception 'fixture rede: usuário desconhecido: %', p_nome;
+  end if;
+  return v;
+end $$;
+
+create function pg_temp.parceiro(p_nome text) returns uuid language plpgsql immutable as $$
+declare
+  v uuid := case p_nome
+    when 'ia'        then 'c0000000-0000-4000-8000-000000000011'
+    when 'ga1'       then 'c0000000-0000-4000-8000-000000000012'
+    when 'ga2'       then 'c0000000-0000-4000-8000-000000000013'
+    when 'ca1a'      then 'c0000000-0000-4000-8000-000000000014'
+    when 'ca2a'      then 'c0000000-0000-4000-8000-000000000015'
+    when 'ib'        then 'c0000000-0000-4000-8000-000000000021'
+    when 'gb1'       then 'c0000000-0000-4000-8000-000000000022'
+    when 'cb1a'      then 'c0000000-0000-4000-8000-000000000023'
+    when 'inativo'   then 'c0000000-0000-4000-8000-000000000041'
+    when 'bloqueado' then 'c0000000-0000-4000-8000-000000000042'
+  end::uuid;
+begin
+  if v is null then
+    raise exception 'fixture rede: parceiro desconhecido: %', p_nome;
+  end if;
+  return v;
+end $$;
+
+create function pg_temp.cliente(p_nome text) returns uuid language plpgsql immutable as $$
+declare
+  v uuid := case p_nome
+    when 'c1' then 'd0000000-0000-4000-8000-000000000001'
+    when 'c2' then 'd0000000-0000-4000-8000-000000000002'
+    when 'c3' then 'd0000000-0000-4000-8000-000000000003'
+    when 'c4' then 'd0000000-0000-4000-8000-000000000004'
+    when 'c5' then 'd0000000-0000-4000-8000-000000000005'
+  end::uuid;
+begin
+  if v is null then
+    raise exception 'fixture rede: cliente desconhecido: %', p_nome;
+  end if;
+  return v;
+end $$;
+
+create function pg_temp.imobiliaria(p_nome text) returns uuid language plpgsql immutable as $$
+declare
+  v uuid := case p_nome
+    when 'a' then 'b0000000-0000-4000-8000-00000000000a'
+    when 'b' then 'b0000000-0000-4000-8000-00000000000b'
+  end::uuid;
+begin
+  if v is null then
+    raise exception 'fixture rede: imobiliária desconhecida: %', p_nome;
+  end if;
+  return v;
+end $$;
+
+-- sessões simuladas (equivalentes a "set local role ...; set local request.jwt.claims = ...")
+create function pg_temp.entrar(p_nome text, p_aal text default 'aal1') returns text language plpgsql as $$
+begin
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', pg_temp.usuario(p_nome), 'role', 'authenticated', 'aal', p_aal)::text, true);
+  perform set_config('role', 'authenticated', true);
+  return '';
+end $$;
+
+create function pg_temp.entrar_anon() returns text language plpgsql as $$
+begin
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims', '{"role":"anon"}', true);
+  perform set_config('role', 'anon', true);
+  return '';
+end $$;
+
+create function pg_temp.entrar_servico() returns text language plpgsql as $$
+begin
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims', '{"role":"service_role"}', true);
+  perform set_config('role', 'service_role', true);
+  return '';
+end $$;
+
+create function pg_temp.como(p_nome text, p_aal text default 'aal1') returns text language plpgsql as $$
+begin
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims',
+    jsonb_build_object('sub', pg_temp.usuario(p_nome), 'role', 'authenticated', 'aal', p_aal)::text, true);
+  return '';
+end $$;
+
+create function pg_temp.sair() returns text language plpgsql as $$
+begin
+  perform set_config('role', 'none', true);
+  perform set_config('request.jwt.claims', '', true);
+  return '';
+end $$;
+
+-- roda o SQL com o papel atual e devolve o erro (ou null); o detail vira jsonb quando for JSON
+create function pg_temp.erro(p_sql text) returns jsonb language plpgsql as $$
+declare
+  v_estado text;
+  v_msg text;
+  v_detalhe text;
+  v_json jsonb;
+begin
+  execute p_sql;
+  return null;
+exception when others then
+  get stacked diagnostics v_estado = returned_sqlstate, v_msg = message_text, v_detalhe = pg_exception_detail;
+  begin
+    v_json := nullif(v_detalhe, '')::jsonb;
+  exception when others then
+    v_json := to_jsonb(v_detalhe);
+  end;
+  return jsonb_build_object('sqlstate', v_estado, 'mensagem', v_msg, 'detalhe', v_json);
+end $$;
+
+-- ============ USUÁRIOS (handle_new_user cria o perfil 'parceiro'/'pendente') ============
+insert into auth.users (id, instance_id, aud, role, email, raw_user_meta_data, created_at, updated_at)
+select pg_temp.usuario(u.nome), '00000000-0000-0000-0000-000000000000', 'authenticated', 'authenticated', u.email,
+       jsonb_build_object('nome', u.rotulo), now(), now()
+from (values
+  ('admin',      'admin@fixture.test',     'Admin Fixture'),
+  ('super',      'super@fixture.test',     'Super Fixture'),
+  ('ia',         'ia@fixture.test',        'IA Imobiliária A'),
+  ('ga1',        'ga1@fixture.test',       'GA1 Gerente'),
+  ('ga2',        'ga2@fixture.test',       'GA2 Gerente'),
+  ('ca1a',       'ca1a@fixture.test',      'CA1a Corretor'),
+  ('ca2a',       'ca2a@fixture.test',      'CA2a Corretor'),
+  ('ib',         'ib@fixture.test',        'IB Imobiliária B'),
+  ('gb1',        'gb1@fixture.test',       'GB1 Gerente'),
+  ('cb1a',       'cb1a@fixture.test',      'CB1a Corretor'),
+  ('inativo',    'inativo@fixture.test',   'Corretor Inativo'),
+  ('bloqueado',  'bloqueado@fixture.test', 'Corretor Bloqueado'),
+  ('pendente',   'pendente@fixture.test',  'Autocadastro Pendente'),
+  ('titular_c1', 'cliente-d0000000-0000-4000-8000-000000000001@portal.arkenincorporadora.com.br', 'Cliente Um')
+) as u(nome, email, rotulo);
+
+update public.profiles pr
+   set papel = x.papel::public.papel, status_parceiro = x.status::public.status_parceiro
+  from (values
+    ('admin', 'admin', 'aprovado'), ('super', 'super', 'aprovado'),
+    ('ia', 'imobiliaria', 'aprovado'), ('ib', 'imobiliaria', 'aprovado'),
+    ('ga1', 'gerente', 'aprovado'), ('ga2', 'gerente', 'aprovado'), ('gb1', 'gerente', 'aprovado'),
+    ('ca1a', 'corretor', 'aprovado'), ('ca2a', 'corretor', 'aprovado'), ('cb1a', 'corretor', 'aprovado'),
+    ('inativo', 'corretor', 'aprovado'), ('bloqueado', 'corretor', 'aprovado'),
+    ('titular_c1', 'cliente', 'pendente')
+  ) as x(nome, papel, status)
+ where pr.id = pg_temp.usuario(x.nome);
+
+-- ============ REDE ============
+insert into public.imobiliarias (id, nome, razao_social, cnpj, creci_pj, email, cidade, uf) values
+  (pg_temp.imobiliaria('a'), 'Imobiliária A', 'Imobiliária A Ltda', '11222333000181', 'J-0001', 'contato@imob-a.test', 'São Paulo', 'SP'),
+  (pg_temp.imobiliaria('b'), 'Imobiliária B', 'Imobiliária B Ltda', '11222334000126', 'J-0002', 'contato@imob-b.test', 'Campinas', 'SP');
+
+-- usuários das imobiliárias e gerentes (os corretores dependem dos gerentes)
+insert into public.parceiros (id, profile_id, tipo, imobiliaria_id, gerente_id, nome, cpf, creci, email, codigo_indicacao) values
+  (pg_temp.parceiro('ia'),  pg_temp.usuario('ia'),  'imobiliaria', pg_temp.imobiliaria('a'), null, 'IA Imobiliária A', null, null, 'ia@fixture.test', null),
+  (pg_temp.parceiro('ib'),  pg_temp.usuario('ib'),  'imobiliaria', pg_temp.imobiliaria('b'), null, 'IB Imobiliária B', null, null, 'ib@fixture.test', null),
+  (pg_temp.parceiro('ga1'), pg_temp.usuario('ga1'), 'gerente', pg_temp.imobiliaria('a'), null, 'GA1 Gerente', '12345670169', null, 'ga1@fixture.test', 'linkgaumaa'),
+  (pg_temp.parceiro('ga2'), pg_temp.usuario('ga2'), 'gerente', pg_temp.imobiliaria('a'), null, 'GA2 Gerente', '12345670240', null, 'ga2@fixture.test', null),
+  (pg_temp.parceiro('gb1'), pg_temp.usuario('gb1'), 'gerente', pg_temp.imobiliaria('b'), null, 'GB1 Gerente', '12345670592', null, 'gb1@fixture.test', null);
+
+insert into public.parceiros (id, profile_id, tipo, imobiliaria_id, gerente_id, nome, cpf, creci, email, codigo_indicacao) values
+  (pg_temp.parceiro('ca1a'),      pg_temp.usuario('ca1a'),      'corretor', pg_temp.imobiliaria('a'), pg_temp.parceiro('ga1'), 'CA1a Corretor',      '12345670320', 'CRECI-CA1A', 'ca1a@fixture.test',      'linkcaumaa'),
+  (pg_temp.parceiro('ca2a'),      pg_temp.usuario('ca2a'),      'corretor', pg_temp.imobiliaria('a'), pg_temp.parceiro('ga2'), 'CA2a Corretor',      '12345670401', 'CRECI-CA2A', 'ca2a@fixture.test',      'linkcadois'),
+  (pg_temp.parceiro('cb1a'),      pg_temp.usuario('cb1a'),      'corretor', pg_temp.imobiliaria('b'), pg_temp.parceiro('gb1'), 'CB1a Corretor',      '12345670673', 'CRECI-CB1A', 'cb1a@fixture.test',      'linkcbumaa'),
+  (pg_temp.parceiro('inativo'),   pg_temp.usuario('inativo'),   'corretor', pg_temp.imobiliaria('a'), pg_temp.parceiro('ga1'), 'Corretor Inativo',   '12345670754', 'CRECI-INAT', 'inativo@fixture.test',   null),
+  (pg_temp.parceiro('bloqueado'), pg_temp.usuario('bloqueado'), 'corretor', pg_temp.imobiliaria('a'), pg_temp.parceiro('ga1'), 'Corretor Bloqueado', '12345670835', 'CRECI-BLOQ', 'bloqueado@fixture.test', 'linkbloque');
+
+-- desligamento (como rede_inativar_parceiro faria): vínculo inativado, perfil 'inativo'; bloqueio: só o perfil
+set local arken.motivo_vinculo = 'fixture: desligamento';
+update public.parceiros set inativado_em = now(), motivo_inativacao = 'fixture: desligamento'
+ where id = pg_temp.parceiro('inativo');
+set local arken.motivo_vinculo = '';
+update public.profiles set status_parceiro = 'inativo' where id = pg_temp.usuario('inativo');
+update public.profiles set status_parceiro = 'bloqueado' where id = pg_temp.usuario('bloqueado');
+
+-- ============ CLIENTES (a cadeia vem do corretor pelo gatilho clientes_cadeia) ============
+insert into public.clientes (id, user_id, nome, cpf, email, telefone, corretor_id, origem, portal_liberado) values
+  (pg_temp.cliente('c1'), pg_temp.usuario('titular_c1'), 'Cliente Um',    '12345670916', 'c1@cliente.test', '11900000001', pg_temp.parceiro('ca1a'),      'cadastro_interno', true),
+  (pg_temp.cliente('c2'), null,                          'Cliente Dois',  '12345671050', 'c2@cliente.test', '11900000002', pg_temp.parceiro('ca2a'),      'cadastro_interno', false),
+  (pg_temp.cliente('c3'), null,                          'Cliente Três',  '12345671130', 'c3@cliente.test', '11900000003', pg_temp.parceiro('cb1a'),      'cadastro_interno', false),
+  (pg_temp.cliente('c4'), null,                          'Cliente Quatro','12345671211', 'c4@cliente.test', '11900000004', pg_temp.parceiro('ga1'),       'cadastro_interno', false),
+  (pg_temp.cliente('c5'), null,                          'Cliente Cinco', '12345671300', 'c5@cliente.test', '11900000005', pg_temp.parceiro('bloqueado'), 'cadastro_interno', false);
+
+-- ============ CONSENTIMENTOS (termos vigentes da semente da 02) ============
+insert into public.lgpd_consentimentos (titular, profile_id, termo_id, origem)
+select 'parceiro', pg_temp.usuario(n), public._termo_vigente_id('termos_parceiro'), 'cadastro_parceiro'
+from unnest(array['ia', 'ga1', 'ga2', 'ca1a', 'ca2a', 'ib', 'gb1', 'cb1a', 'inativo', 'bloqueado']) n;
+
+insert into public.lgpd_consentimentos (titular, cliente_id, termo_id, origem, registrado_por)
+select 'cliente', pg_temp.cliente(x.c), public._termo_vigente_id('consentimento_cliente'), 'declarado', pg_temp.usuario(x.quem)
+from (values ('c1', 'ca1a'), ('c2', 'ca2a'), ('c3', 'cb1a'), ('c4', 'ga1'), ('c5', 'bloqueado')) as x(c, quem);

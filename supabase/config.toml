@@ -2,6 +2,9 @@ project_id = "arken-incorporadora"
 
 # Remoto: https://xucwjsycawizrlouqkvh.supabase.co
 # `supabase config push` envia as seções [auth] abaixo para o projeto — revise o diff antes de confirmar.
+# ORDEM: o hook [auth.hook.custom_access_token] aponta para public.hook_token_acesso (migration 20260929000009).
+# Rode `supabase db push` ANTES do `config push`; com o hook ligado e a função ausente, nenhum login funciona.
+# Ordem completa e segura do deploy (functions, db push, config push, conferências): scripts/migracao/DEPLOY.md.
 # Segredos via env(): coloque RESEND_API_KEY em supabase/.env (não versionado).
 
 [db]
@@ -20,11 +23,56 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.notificar]
-# chamada só pelos gatilhos do banco (pg_net); autenticada pelo header x-webhook-secret
+# chamada só pelos gatilhos do banco (pg_net) e pelo pg_cron; autenticada pelo header x-webhook-secret. RESEND_URL
+# (simulador local do Resend) só vale fora de produção; em produção o envio vai sempre para api.resend.com.
 verify_jwt = false
 
 [functions.convidar-parceiros]
-# a função valida o JWT e exige papel admin no próprio código (funciona também com as chaves novas)
+# COM JWT (validado no código, exigirUsuario): quem pode convidar e em que modo é rede_pode_convidar, chamada com o JWT
+# de quem pede (interno ou parceiro com a permissão da rede); a service role só cria o login no Auth e grava o vínculo.
+verify_jwt = false
+
+# ---- Funções da expansão (docs/ARQUITETURA_EXPANSAO.md §6) ----
+# Todas com verify_jwt = false, de propósito: o gateway só valida JWT assinado com o segredo legado e as chaves
+# novas (sb_publishable_/sb_secret_) não são JWT. Cada função se autentica no próprio código com
+# supabase/functions/_shared: exigirUsuario() valida o JWT no Auth e chama as RPCs COM esse JWT (o banco aplica
+# escopo, papel e aal2); as públicas usam Turnstile + limite por IP; as chamadas entre servidores usam segredo
+# comparado em tempo constante. A service role nunca decide permissão.
+
+[functions.pre-cadastro]
+# PÚBLICA (SEG-1): link de indicação do corretor. Limite por IP (tentativas_publicas) + Turnstile; grava pela RPC
+# de sistema crm_pre_cadastro (service role). Responde igual para cadastro novo e duplicado.
+verify_jwt = false
+
+[functions.contrato-gerar]
+# COM JWT (validado no código): o escopo é da RPC contrato_dados_modelo chamada com o JWT de quem pediu.
+verify_jwt = false
+
+[functions.contrato-assinatura]
+# COM JWT de interno (validado no código): contrato_preparar_envio com esse JWT decide; aal2 quando exigido.
+verify_jwt = false
+
+[functions.d4sign-webhook]
+# PÚBLICA, chamada pelo D4Sign: vale só com o token ?t= (sha256 igual a contratos.webhook_token_hash, comparado em
+# tempo constante) e o HMAC (Content-Hmac) quando a conta enviar. O corpo só dispara a reconsulta na API.
+verify_jwt = false
+
+[functions.d4sign-reconciliar]
+# SÓ pg_cron (pg_net, de hora em hora): cabeçalho x-cron-secret = CRON_SEGREDO (Vault 'cron_segredo'), comparado
+# em tempo constante; sem o segredo configurado, recusa. Sem JWT de propósito: com verify_jwt o cron teria de
+# guardar a service role no Vault, e um segredo próprio pode ser trocado sem mexer nas chaves do projeto.
+verify_jwt = false
+
+[functions.baixar-arquivo]
+# COM JWT (validado no código): download de crm-documentos e contratos (§4.3). Resgata a autorização que a RPC
+# auditada (crm_documento_baixar, contrato_baixar, portal_contrato_baixar) gravou para ESTE usuário e assina a URL
+# com a service role, valendo só até o fim da autorização. Os buckets não têm SELECT para authenticated: assinar pelo
+# cliente deixaria escolher a validade (sem teto) e a URL não passaria pela auditoria.
+verify_jwt = false
+
+[functions.lgpd-anonimizar]
+# COM JWT do Super (validado no código): lgpd_anonimizar_cliente chamada com esse JWT confere is_super() e aal2;
+# a service role só apaga os arquivos no Storage e o usuário Auth do portal devolvidos pela RPC.
 verify_jwt = false
 
 [auth]
@@ -41,11 +89,35 @@ enable_signup = true
 enable_anonymous_sign_ins = false
 minimum_password_length = 8
 
+# H2 (tentativas de login): Turnstile ([auth.captcha]) + limite por IP abaixo. O bloqueio por conta
+# (5 tentativas / 15 min) exige o hook password_verification_attempt, só dos planos Team/Enterprise: não configurado.
 [auth.rate_limit]
 # e-mails por hora (só vale com SMTP próprio)
 email_sent = 60
 sign_in_sign_ups = 30
 token_verifications = 30
+
+# Hook de token (§4.1): registra o login (menos token_refresh) e recusa emitir token para perfil 'inativo' — com
+# jwt_expiry = 3600 o acesso cai em até 1 h, mesmo com refresh token. Não põe escopo em claims.
+# A função é public.hook_token_acesso (migration 20260929000009), com execute só para supabase_auth_admin.
+[auth.hook.custom_access_token]
+enabled = true
+uri = "pg-functions://postgres/public/hook_token_acesso"
+
+# H5 (2FA de internos): TOTP por aplicativo autenticador, disponível no plano gratuito. is_admin()/is_super()
+# só exigem aal2 quando configuracao_geral.exigir_mfa_interno = true (começa desligado; o runbook liga depois de
+# todos os internos cadastrarem o TOTP). MFA por SMS é pago à parte e fica desligado (padrão).
+[auth.mfa]
+max_enrolled_factors = 10
+
+[auth.mfa.totp]
+enroll_enabled = true
+verify_enabled = true
+
+# H1 (sair após 8 h sem uso): inactivity_timeout só existe nos planos pagos (Pro+). No gratuito vale o temporizador
+# do front (src/hooks/useInatividade.ts, lendo configuracao_geral.sessao_inatividade_horas). Ao migrar de plano:
+# [auth.sessions]
+# inactivity_timeout = "8h"
 
 [auth.email]
 enable_signup = true
@@ -54,8 +126,19 @@ enable_confirmations = true
 double_confirm_changes = true
 secure_password_change = true
 max_frequency = "60s"
-otp_length = 6
-# validade dos links de e-mail (convite de parceiro via WhatsApp, recuperação de senha): 24 h
+# DEP-02 (revisão final). O token de e-mail do GoTrue é derivado do e-mail e de um código numérico de otp_length dígitos (o
+# link leva o hash disso): quem adivinha o código pode testá-lo em /verify, pelo código digitado ou pelo hash. Com 6
+# dígitos e validade de 24 h, o único freio é token_verifications (30 a cada 5 min POR IP): ~1 milhão de códigos caem em
+# poucos dias com alguns IPs, e a recuperação de senha de uma conta interna conhecida (pedida com um captcha resolvido)
+# vira tomada de conta (aal2 só é exigido com exigir_mfa_interno, que começa desligado). Por isso o código tem 10
+# dígitos (máximo do GoTrue: 10^10 combinações, inviável) e a validade de 24 h dos convites por WhatsApp e das
+# recuperações de senha é mantida. O front não usa código numérico (convite e recuperação usam token_hash).
+# O que está hoje no projeto remoto NÃO foi lido daqui (a leitura exige a Management API): o PRD registra 6 dígitos/10 min
+# aplicados em 22/09; este arquivo, de 24/09, já dizia 86400 (o convite de 24 h do PRD só vale com isso aplicado). Antes do
+# `supabase config push`, confira no diff que ele mostra: otp_expiry (esperado sem mudança se o remoto já estiver em 86400; se
+# estiver em 600, o push amplia para 24 h — intencional, e seguro com 10 dígitos) e otp_length (6 → 10). Convites já emitidos
+# continuam valendo (o token é um hash guardado). Ligue exigir_mfa_interno quando os internos cadastrarem o TOTP.
+otp_length = 10
 otp_expiry = 86400
 
 [auth.email.template.magic_link]
@@ -79,7 +162,9 @@ subject = "Confirme seu novo e-mail — Arken Incorporadora"
 content_path = "./supabase/templates/trocar-email.html"
 
 # Cloudflare Turnstile no cadastro, login e recuperação de senha de parceiro (o front manda captchaToken).
-# TURNSTILE_SECRET em supabase/.env; a de teste da Cloudflare é 1x0000000000000000000000000000000AA.
+# TURNSTILE_SECRET em supabase/.env. Em PRODUÇÃO é a secret REAL, par da VITE_TURNSTILE_SITE_KEY do build (FR1-02; ver
+# scripts/migracao/DEPLOY.md). A secret de TESTE da Cloudflare (1x0000000000000000000000000000000AA, que aprova qualquer
+# token) só serve para o desenvolvimento local e NUNCA pode estar no ambiente de um `supabase config push`.
 [auth.captcha]
 enabled = true
 provider = "turnstile"
