@@ -4,7 +4,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { Ban, Download, FilePlus2, ThumbsDown, ThumbsUp, Upload } from 'lucide-react'
+import { Ban, Download, Eye, FilePlus2, ThumbsDown, ThumbsUp, Upload } from 'lucide-react'
 import { crmDocumentoAnalisar, crmDocumentoCancelar, crmDocumentoSolicitar, crmDocumentos } from '@/lib/rpc'
 import { mensagemErro } from '@/lib/erros'
 import { FORMATOS_DOCUMENTO } from '@/lib/constants'
@@ -15,7 +15,9 @@ import { Consulta } from '@/components/app/Consulta'
 import { ConfirmarModal } from '@/components/app/ConfirmarModal'
 import { Etiqueta, SeloStatus } from '@/components/app/Etiqueta'
 import { Modal } from '@/components/app/Modal'
-import { MAX_BYTES_PADRAO, abrirArquivo, chavesFunil, enviarArquivoDocumento, useConfigDocumentos } from '../api-funil'
+import { VisualizadorArquivo } from '@/components/app/VisualizadorArquivo'
+import { podeVisualizar } from '@/lib/arquivos'
+import { MAX_BYTES_PADRAO, abrirArquivo, carregarArquivo, chavesFunil, enviarArquivoDocumento, useConfigDocumentos } from '../api-funil'
 import { acceptDosFormatos, tamanhoLegivel } from '../funil'
 import type { ClienteDocumento, PropsAbaFicha } from '../tipos'
 
@@ -113,6 +115,8 @@ export default function AbaDocumentos({ clienteId, ficha, recarregarFicha }: Pro
     }
   }
 
+  const [vendo, setVendo] = useState<{ id: string; titulo: string; mimeType: string } | null>(null)
+
   async function baixar(arquivoId: string) {
     setBaixando(arquivoId)
     try {
@@ -203,10 +207,19 @@ export default function AbaDocumentos({ clienteId, ficha, recarregarFicha }: Pro
                           {a.removido ? (
                             <Etiqueta>Removido (LGPD)</Etiqueta>
                           ) : p.baixar_documento && (
-                            <button type="button" className="inline-flex items-center gap-1 text-bronze hover:underline disabled:opacity-50"
-                              disabled={baixando === a.id} onClick={() => void baixar(a.id)} aria-label={`Baixar versão de ${dataHora(a.enviado_em)} de ${d.nome}`}>
-                              <Download size={13} aria-hidden /> {baixando === a.id ? 'Abrindo…' : 'Baixar'}
-                            </button>
+                            <span className="flex items-center gap-4">
+                              {podeVisualizar(a.mime_type) && (
+                                <button type="button" className="inline-flex items-center gap-1 text-bronze hover:underline"
+                                  onClick={() => setVendo({ id: a.id, titulo: `${d.nome} — ${dataHora(a.enviado_em)}`, mimeType: a.mime_type })}
+                                  aria-label={`Visualizar versão de ${dataHora(a.enviado_em)} de ${d.nome}`}>
+                                  <Eye size={13} aria-hidden /> Visualizar
+                                </button>
+                              )}
+                              <button type="button" className="inline-flex items-center gap-1 text-bronze hover:underline disabled:opacity-50"
+                                disabled={baixando === a.id} onClick={() => void baixar(a.id)} aria-label={`Baixar versão de ${dataHora(a.enviado_em)} de ${d.nome}`}>
+                                <Download size={13} aria-hidden /> {baixando === a.id ? 'Abrindo…' : 'Baixar'}
+                              </button>
+                            </span>
                           )}
                         </li>
                       ))}
@@ -218,6 +231,12 @@ export default function AbaDocumentos({ clienteId, ficha, recarregarFicha }: Pro
           </ul>
         )}
       </Consulta>
+      <VisualizadorArquivo
+        arquivo={vendo && { chave: vendo.id, titulo: vendo.titulo, mimeType: vendo.mimeType }}
+        carregar={() => carregarArquivo(vendo!.id, vendo!.mimeType)}
+        aoFechar={() => setVendo(null)}
+        aoBaixar={vendo ? () => void baixar(vendo.id) : undefined}
+      />
 
       {solicitando && <ModalSolicitar clienteId={clienteId} aoFechar={() => setSolicitando(false)} aoSalvar={atualizar} />}
       <ConfirmarModal

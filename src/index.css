@@ -6,7 +6,8 @@
 
   /* tema escuro — papéis: ink = fundo, ink-soft = superfície (cards, inputs, seções alternadas),
      sand = preenchimento sutil (placeholders, trilhas, cabeçalho de tabela), line = bordas,
-     stone = texto principal, muted = texto secundário, bronze = destaque */
+     stone = texto principal, muted = texto secundário, bronze = destaque, aviso = amarelo fraco de atenção
+     (ex.: unidade reservada), para não confundir com o bronze da marca */
   --color-ink: #0f1318;
   --color-ink-soft: #171c23;
   --color-stone: #f3eee6;
@@ -16,6 +17,7 @@
   --color-bronze: #c27e4a;
   --color-bronze-dark: #9c6134;
   --color-sage: #8fa894;
+  --color-aviso: #e2c66f;
 }
 
 /* cores de sinalização que também são usadas fora de classes (estilo inline, gráficos): 'static' faz a variável sair

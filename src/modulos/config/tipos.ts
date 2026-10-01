@@ -137,6 +137,8 @@ export interface PermissaoRede {
 export type TipoNotificacao =
   | 'crm.boas_vindas' | 'crm.documento_rejeitado' | 'crm.documento_solicitado' | 'crm.novo_lead_corretor'
   | 'contratos.enviado' | 'contratos.assinado' | 'rede.transferencia'
+  // decisões do dono de 29/09/2026 (migrations 23 e 24)
+  | 'crm.exclusividade_transferida' | 'portal.solicitacao'
 
 /** `notificacoes_config`. */
 export interface NotificacaoConfig {

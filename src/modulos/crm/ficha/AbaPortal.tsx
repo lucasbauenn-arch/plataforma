@@ -12,6 +12,9 @@ import { Carregando } from '@/components/Estados'
 import { ConfirmarModal } from '@/components/app/ConfirmarModal'
 import { Etiqueta } from '@/components/app/Etiqueta'
 import { SeloProvisorio } from '@/components/app/SeloProvisorio'
+import { MarcosEquipe } from '@/modulos/portal/componentes/MarcosEquipe'
+import { chavesPortal } from '@/modulos/portal/rotulos'
+import { SolicitacoesEquipe } from '@/modulos/portal/componentes/SolicitacoesEquipe'
 import type { PropsAbaFicha } from '../tipos'
 
 type Remocao = { tipo: 'negocio'; item: ClienteNegocio } | { tipo: 'arquivo'; item: ClienteArquivo }
@@ -20,7 +23,8 @@ type Remocao = { tipo: 'negocio'; item: ClienteNegocio } | { tipo: 'arquivo'; it
  * Aba Portal [WP2] (só internos; é o antigo /admin/clientes): liberar ou fechar o portal por CPF
  * (crm_liberar_portal, auditada; só PF com CPF — N1/N9), últimos acessos (sem IP na tela: minimização), negócios e
  * arquivos exibidos ao cliente. Negócios e arquivos continuam como hoje: conteúdo que a Arken gerencia pela API, com a
- * RLS de admin (§1.3).
+ * RLS de admin (§1.3). Decisão do dono (29/09/2026): os marcos da compra de cada negócio (datas que o cliente vê na
+ * linha do tempo do portal) e as solicitações que o cliente abriu pelo portal.
  */
 export default function AbaPortal({ clienteId, ficha, recarregarFicha }: PropsAbaFicha) {
   const qc = useQueryClient()
@@ -46,7 +50,10 @@ export default function AbaPortal({ clienteId, ficha, recarregarFicha }: PropsAb
       }
     },
   })
-  const recarregar = () => qc.invalidateQueries({ queryKey: chave })
+  const recarregar = () => Promise.all([
+    qc.invalidateQueries({ queryKey: chave }),
+    qc.invalidateQueries({ queryKey: chavesPortal.marcosEquipe(clienteId) }),
+  ])
 
   if (!permissoes.ver_portal) return <p className="text-sm text-muted">Esta aba é só da equipe Arken.</p>
 
@@ -149,6 +156,13 @@ export default function AbaPortal({ clienteId, ficha, recarregarFicha }: PropsAb
               <input name="valor" aria-label="Valor" className="input py-2" placeholder="Valor (R$)" inputMode="decimal" />
               <button type="submit" className="btn-primary py-2"><Plus size={15} aria-hidden /> Adicionar</button>
             </form>
+          </section>
+
+          {q.data.negocios.length > 0 && <MarcosEquipe clienteId={clienteId} />}
+
+          <section className="card p-6" aria-labelledby="solicitacoes-cliente">
+            <h3 id="solicitacoes-cliente" className="mb-4 text-lg font-semibold">Solicitações pelo portal</h3>
+            <SolicitacoesEquipe clienteId={clienteId} />
           </section>
 
           <section className="card p-6">

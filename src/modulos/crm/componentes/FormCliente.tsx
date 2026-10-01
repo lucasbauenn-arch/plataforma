@@ -3,6 +3,8 @@ import { Controller, useForm, useWatch } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { toast } from 'sonner'
 import { Campo } from '@/components/Campo'
+import { CampoData } from '@/components/app/CampoData'
+import { hojeIso } from '@/lib/datas'
 import { CampoCep } from '@/components/app/CampoCep'
 import { ErroRpc, listaDoDetalhe, mensagemErro, rotuloCampo } from '@/lib/erros'
 import { ESTADOS_CIVIS, GENEROS, INTERESSES, TIPOS_PESSOA, UFS } from '@/lib/constants'
@@ -106,7 +108,9 @@ export function FormCliente({
           <>
             <Campo label="RG" erro={errors.rg?.message}><input className="input" autoComplete="off" {...register('rg')} /></Campo>
             <Campo label="Data de nascimento" erro={errors.data_nascimento?.message}>
-              <input type="date" className="input" min="1900-01-01" {...register('data_nascimento')} />
+              <Controller control={control} name="data_nascimento" render={({ field }) => (
+                <CampoData valor={field.value ?? ''} aoMudar={field.onChange} min="1900-01-01" max={hojeIso()} invalido={!!errors.data_nascimento} />
+              )} />
             </Campo>
             <Campo label="Gênero" erro={errors.genero?.message}>
               <select className="input" {...register('genero')}>

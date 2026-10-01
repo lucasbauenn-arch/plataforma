@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { toast } from 'sonner'
-import { ArrowLeft, Pencil, Trash2, Upload, Plus, X } from 'lucide-react'
+import clsx from 'clsx'
+import { ArrowLeft, Pencil, Trash2, Upload, Plus, X, Wand2 } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
 import { ESTAGIOS, STATUS_UNIDADE } from '@/lib/constants'
 import { midiaUrl } from '@/lib/midia'
@@ -13,7 +14,13 @@ import { ConfirmarModal } from '@/components/app/ConfirmarModal'
 import type { EmpreendimentoCompleto, TipoMidia, Unidade, ObraAtualizacao, StatusUnidade } from '@/lib/types'
 import { Carregando } from '@/components/Estados'
 import { chaveUnidade, lerEspelhoVendas, numeroBR, planejarImportacao, type PlanoImportacao } from '@/lib/espelho'
+import { CampoData } from '@/components/app/CampoData'
 import { aplicarPlanoDeImportacao, lerCadastroDeUnidades, listaCurta } from './espelhoImportacao'
+import { apagarLinha, type AlvoExclusao } from './editorComum'
+import { ConfirmarExclusao } from './ConfirmarExclusao'
+import { EditorLocalizacao } from './EditorLocalizacao'
+import { EditorLazer, EditorProximidades } from './EditorConteudo'
+import { faltamParaOTotal, metragemNumerica, nomesParaGerar } from './gerarUnidades'
 
 type Aba = 'dados' | 'midias' | 'conteudo' | 'unidades' | 'obra'
 const ABAS: [Aba, string][] = [['dados', 'Dados'], ['midias', 'Galeria'], ['conteudo', 'Lazer, ficha e proximidades'], ['unidades', 'Unidades e materiais'], ['obra', 'Andamento da obra']]
@@ -23,19 +30,6 @@ async function enviarArquivo(empId: string, file: File) {
   const { error } = await supabase.storage.from('empreendimentos').upload(path, file, { cacheControl: '31536000' })
   if (error) { toast.error(`Falha ao enviar ${file.name}`); return null }
   return path
-}
-
-/** Item à espera de confirmação para excluir (mensagem do modal + a exclusão em si). */
-interface AlvoExclusao { titulo: string; texto: string; excluir: () => Promise<void> }
-
-/**
- * DELETE por id. O erro do servidor vira exceção (o `ConfirmarModal` mostra no aviso e mantém o modal aberto) e também
- * "nenhuma linha apagada": sem erro e sem linha significa que a política de acesso barrou em silêncio.
- */
-async function apagarLinha(tabela: string, id: string) {
-  const { data, error } = await supabase.from(tabela).delete().eq('id', id).select('id')
-  if (error) throw traduzirErro(error)
-  if (!data?.length) throw traduzirErro({ code: '42501', message: 'Sem acesso a este registro' })
 }
 
 // campos não controlados do formulário "Dados" — fora do componente para não remontar a cada render
@@ -50,22 +44,66 @@ const C = ({ e, n, l }: CampoEmp) => (
   <label className="flex items-center gap-2 text-sm"><input type="checkbox" name={n} defaultChecked={!!e[n]} className="accent-bronze" /> {l}</label>
 )
 
+const OUTRA_CONSTRUTORA = '__outra__'
+
+/** Construtoras já usadas nos empreendimentos (sem repetir, em ordem alfabética). */
+function useConstrutoras() {
+  return useQuery({
+    queryKey: ['construtoras'],
+    queryFn: async () => {
+      const { data, error } = await supabase.from('empreendimentos').select('construtora').not('construtora', 'is', null)
+      if (error) throw traduzirErro(error)
+      const nomes = (data ?? []).map((r) => ((r as { construtora: string | null }).construtora ?? '').trim()).filter(Boolean)
+      return [...new Set(nomes)].sort((a, b) => a.localeCompare(b, 'pt-BR'))
+    },
+  })
+}
+
+/** Construtora: lista das já usadas + "Outra…" (campo de texto). O `name` fica no campo que vale, para o FormData. */
+function CampoConstrutora({ inicial }: { inicial: string | null }) {
+  const id = useId()
+  const q = useConstrutoras()
+  const atual = inicial?.trim() ?? ''
+  const lista = q.data ? (atual && !q.data.includes(atual) ? [atual, ...q.data] : q.data) : (atual ? [atual] : [])
+  const [escolha, setEscolha] = useState(atual)
+  const [outra, setOutra] = useState(false)
+  const digitar = outra || !!q.error
+  return (
+    <div className="sm:col-span-2">
+      <label className="label" htmlFor={id}>Construtora</label>
+      <div className="grid gap-2 sm:grid-cols-2">
+        <select id={id} name={digitar ? undefined : 'construtora'} value={digitar ? OUTRA_CONSTRUTORA : escolha} className="input"
+          onChange={(ev) => { const v = ev.target.value; if (v === OUTRA_CONSTRUTORA) setOutra(true); else { setOutra(false); setEscolha(v) } }}>
+          <option value="">Não informada</option>
+          {lista.map((c) => <option key={c} value={c}>{c}</option>)}
+          <option value={OUTRA_CONSTRUTORA}>Outra…</option>
+        </select>
+        {digitar && <input name="construtora" aria-label="Nome da construtora" placeholder="Nome da construtora" autoFocus={outra} defaultValue={q.error ? atual : ''} className="input" />}
+      </div>
+      {q.error && <p className="mt-1 text-xs text-muted">Não foi possível carregar a lista de construtoras: digite o nome.</p>}
+    </div>
+  )
+}
+
 function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
+  const idEntrega = useId()
   async function salvar(ev: React.FormEvent<HTMLFormElement>) {
     ev.preventDefault()
     const f = new FormData(ev.currentTarget)
     const txt = (k: string) => ((f.get(k) as string) || '').trim() || null
+    const cep = txt('cep')
+    if (cep && !/^\d{8}$/.test(cep)) return toast.error('CEP incompleto: informe os 8 dígitos ou deixe o campo vazio.')
     const upd = {
       nome: txt('nome'), slug: txt('slug'), estagio: f.get('estagio'), chamada: txt('chamada'), tagline: txt('tagline'), titulo_hero: txt('titulo_hero'),
       descricao: txt('descricao'), titulo_lazer: txt('titulo_lazer'), descricao_lazer: txt('descricao_lazer'),
-      endereco: txt('endereco'), bairro: txt('bairro'), cidade: txt('cidade'), uf: txt('uf'), cep: txt('cep'),
+      endereco: txt('endereco'), bairro: txt('bairro'), cidade: txt('cidade'), uf: txt('uf'), cep,
       titulo_localizacao: txt('titulo_localizacao'), texto_localizacao: txt('texto_localizacao'), waze_url: txt('waze_url'),
       latitude: txt('latitude') ? Number(txt('latitude')) : null, longitude: txt('longitude') ? Number(txt('longitude')) : null,
       dormitorios: txt('dormitorios'), vagas: txt('vagas'), metragem: txt('metragem'), categoria: txt('categoria'), construtora: txt('construtora'),
       total_unidades: txt('total_unidades') ? Number(txt('total_unidades')) : null, previsao_entrega: txt('previsao_entrega'),
       videos: (txt('videos') ?? '').split('\n').map((s) => s.trim()).filter(Boolean), tour_virtual_url: txt('tour_virtual_url'),
       aceita_fgts: f.get('aceita_fgts') === 'on', destaque_home: f.get('destaque_home') === 'on', publicado: f.get('publicado') === 'on',
-      mostrar_no_portfolio: f.get('mostrar_no_portfolio') === 'on', ordem: Number(f.get('ordem') || 0),
+      ordem: Number(f.get('ordem') || 0),
     }
     const { error } = await supabase.from('empreendimentos').update(upd).eq('id', e.id)
     if (error) return toast.error(mensagemErro(error))
@@ -83,7 +121,7 @@ function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
       <div className="card flex flex-wrap items-center gap-5 p-5">
         {e.capa_url ? <img src={midiaUrl(e.capa_url)!} className="h-24 w-36 object-cover" alt="" /> : <div className="h-24 w-36 bg-sand" />}
         <label className="btn-ghost cursor-pointer"><Upload size={15} /> Trocar imagem de capa<input type="file" accept="image/*" className="sr-only" onChange={trocarCapa} /></label>
-        <div className="ml-auto flex flex-wrap gap-5"><C e={e} n="publicado" l="Publicado" /><C e={e} n="destaque_home" l="Destaque na home" /><C e={e} n="aceita_fgts" l="Aceita FGTS" /><C e={e} n="mostrar_no_portfolio" l="Mostrar no portfólio" /></div>
+        <div className="ml-auto flex flex-wrap gap-5"><C e={e} n="publicado" l="Publicado" /><C e={e} n="destaque_home" l="Destaque na home" /><C e={e} n="aceita_fgts" l="Aceita FGTS" /></div>
       </div>
       <fieldset className="card grid gap-4 p-6 sm:grid-cols-2">
         <legend className="px-2 font-semibold">Principal</legend>
@@ -97,15 +135,10 @@ function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
       <fieldset className="card grid gap-4 p-6 sm:grid-cols-4">
         <legend className="px-2 font-semibold">Características</legend>
         <I e={e} n="dormitorios" l="Dormitórios" /><I e={e} n="vagas" l="Vagas" /><I e={e} n="metragem" l="Metragem" /><I e={e} n="total_unidades" l="Total de unidades" t="number" />
-        <I e={e} n="categoria" l="Categoria" /><I e={e} n="construtora" l="Construtora" /><I e={e} n="previsao_entrega" l="Previsão de entrega" t="date" />
+        <I e={e} n="categoria" l="Categoria" /><CampoConstrutora inicial={e.construtora} />
+        <div><label className="label" htmlFor={idEntrega}>Previsão de entrega</label><CampoData id={idEntrega} name="previsao_entrega" valorInicial={e.previsao_entrega} /></div>
       </fieldset>
-      <fieldset className="card grid gap-4 p-6 sm:grid-cols-2">
-        <legend className="px-2 font-semibold">Localização</legend>
-        <I e={e} n="endereco" l="Endereço" w="sm:col-span-2" /><I e={e} n="bairro" l="Bairro" /><I e={e} n="cidade" l="Cidade" /><I e={e} n="uf" l="UF" /><I e={e} n="cep" l="CEP" />
-        <I e={e} n="latitude" l="Latitude" t="number" /><I e={e} n="longitude" l="Longitude" t="number" />
-        <I e={e} n="waze_url" l="Link do Waze" w="sm:col-span-2" /><I e={e} n="titulo_localizacao" l="Título da seção" w="sm:col-span-2" />
-        <T e={e} n="texto_localizacao" l="Texto da localização" />
-      </fieldset>
+      <EditorLocalizacao e={e} />
       <fieldset className="card grid gap-4 p-6 sm:grid-cols-2">
         <legend className="px-2 font-semibold">Lazer e mídia</legend>
         <I e={e} n="titulo_lazer" l="Título da seção de lazer" w="sm:col-span-2" /><T e={e} n="descricao_lazer" l="Descrição do lazer" r={3} />
@@ -114,17 +147,6 @@ function Dados({ e, salvo }: { e: EmpreendimentoCompleto; salvo: () => void }) {
       </fieldset>
       <button className="btn-primary sticky bottom-4 justify-self-start shadow-lg">Salvar alterações</button>
     </form>
-  )
-}
-
-/** Modal de confirmação das exclusões do editor: erro do servidor vira aviso e o modal continua aberto. */
-function ConfirmarExclusao({ alvo, aoFechar, depois }: { alvo: AlvoExclusao | null; aoFechar: () => void; depois: () => void }) {
-  return (
-    <ConfirmarModal
-      aberto={!!alvo} titulo={alvo?.titulo ?? ''} texto={alvo?.texto} rotuloConfirmar="Excluir" perigo
-      aoConfirmar={async () => { await alvo?.excluir(); toast.success('Excluído'); depois() }}
-      aoFechar={aoFechar}
-    />
   )
 }
 
@@ -217,9 +239,58 @@ function Repetidor({ titulo, tabela, empId, itens, campos, salvo }: { titulo: st
   )
 }
 
+/** Cor do status na tabela: reservada = amarelo fraco (aviso), vendida = verde (sage), disponível = neutro. */
+const COR_STATUS: Record<StatusUnidade, string> = {
+  disponivel: 'border-line bg-ink-soft text-stone',
+  reservada: 'border-aviso/50 bg-aviso/15 font-semibold text-aviso',
+  vendida: 'border-sage/50 bg-sage/15 font-semibold text-sage',
+}
+type FiltroStatus = 'todas' | StatusUnidade
+const FILTROS: [FiltroStatus, string][] = [['todas', 'Todas'], ['disponivel', 'Disponíveis'], ['reservada', 'Reservadas'], ['vendida', 'Vendidas']]
+
+interface Geracao { nomes: string[]; prefixo: string; inicio: number; metragem: number | null; valor: number | null }
+
+/** Cartão "Gerar N unidades": completa o cadastro até o total de Dados. A gravação (com confirmação) é de quem usa. */
+function GerarUnidades({ e, faltam, cadastradas, aoPreparar }: { e: EmpreendimentoCompleto; faltam: number; cadastradas: string[]; aoPreparar: (g: Geracao) => void }) {
+  const metragemPadrao = metragemNumerica(e.metragem)
+  function preparar(ev: React.FormEvent<HTMLFormElement>) {
+    ev.preventDefault()
+    const f = Object.fromEntries(new FormData(ev.currentTarget)) as Record<string, string>
+    const prefixo = (f.prefixo ?? '').replace(/\s+/g, ' ').trim()
+    const inicio = Number(f.inicio || 1)
+    if (!Number.isInteger(inicio) || inicio < 0) return toast.error('Número inicial inválido: use um número inteiro (ex.: 1 ou 101).')
+    const metragem = numeroBR(f.metragem)
+    const valor = numeroBR(f.valor)
+    if ((metragem !== null && metragem <= 0) || (valor !== null && valor < 0)) return toast.error('Metragem e valor padrão precisam ser positivos (ou vazios).')
+    const nomes = nomesParaGerar(cadastradas, faltam, prefixo, inicio)
+    if (!nomes.length) return toast.error('Não há nomes livres para gerar: confira o prefixo e o número inicial.')
+    aoPreparar({ nomes, prefixo, inicio, metragem, valor })
+  }
+  return (
+    <form onSubmit={preparar} className="card grid gap-4 border-bronze/40 p-5" aria-label="Gerar unidades">
+      <div>
+        <h3 className="flex items-center gap-2 font-semibold"><Wand2 size={16} className="text-bronze" aria-hidden /> Gerar {faltam} unidades</h3>
+        <p className="mt-1 text-sm text-muted">
+          O total previsto em Dados é {e.total_unidades} e há {cadastradas.length} cadastrada(s). As que faltam são criadas como disponíveis;
+          nenhuma unidade existente é alterada e nomes que já existem são pulados.
+        </p>
+      </div>
+      <div className="grid gap-2 sm:grid-cols-4">
+        <label><span className="label">Prefixo</span><input name="prefixo" defaultValue="APTO" className="input !py-2" /></label>
+        <label><span className="label">Número inicial</span><input name="inicio" type="number" min={0} step={1} defaultValue={1} className="input !py-2" /></label>
+        <label><span className="label">Metragem padrão (m²)</span><input name="metragem" inputMode="decimal" defaultValue={metragemPadrao !== null ? String(metragemPadrao).replace('.', ',') : ''} className="input !py-2" /></label>
+        <label><span className="label">Valor padrão</span><input name="valor" inputMode="decimal" placeholder="R$ 0,00" className="input !py-2" /></label>
+      </div>
+      <button className="btn-accent justify-self-start !py-2"><Plus size={15} /> Gerar {faltam} unidades</button>
+    </form>
+  )
+}
+
 function Unidades({ e }: { e: EmpreendimentoCompleto }) {
   const qc = useQueryClient()
   const [editId, setEditId] = useState<string | null>(null)
+  const [filtro, setFiltro] = useState<FiltroStatus>('todas')
+  const [geracao, setGeracao] = useState<Geracao | null>(null)
   const [alvo, setAlvo] = useState<AlvoExclusao | null>(null)
   const [importacao, setImportacao] = useState<{ plano: PlanoImportacao; arquivo: string } | null>(null)
   const unidadesQ = useQuery({
@@ -328,6 +399,37 @@ function Unidades({ e }: { e: EmpreendimentoCompleto }) {
     if (editId === u.id) setEditId(null)
   }
 
+  // Gera as que faltam. O cadastro é relido do servidor na hora: se mudou desde a tela (outra pessoa, outra aba), os
+  // nomes são recalculados e, se diferirem do que foi confirmado, nada é gravado.
+  async function gerar() {
+    if (!geracao) return
+    try {
+      const cadastro = await lerCadastroDeUnidades(e.id)
+      const faltamAgora = faltamParaOTotal(e.total_unidades, cadastro.length)
+      if (!faltamAgora) return void toast.info('Nada a gerar: o cadastro já tem o total de unidades previsto.')
+      const nomes = nomesParaGerar(cadastro.map((u) => u.identificador), Math.min(faltamAgora, geracao.nomes.length), geracao.prefixo, geracao.inicio)
+      if (nomes.join('|') !== geracao.nomes.join('|')) {
+        return void toast.error('O cadastro de unidades mudou enquanto você confirmava. Nada foi gravado: confira a lista e gere de novo.')
+      }
+      const r = await aplicarPlanoDeImportacao(e.id, {
+        criar: nomes.map((identificador) => ({ identificador, metragem: geracao.metragem, valor: geracao.valor, status: 'disponivel' as const })),
+        atualizar: [], semMudanca: 0, repetidasNoArquivo: [], ambiguas: [], foraDoArquivo: 0, statusNaoReconhecido: 0,
+      })
+      if (r.falhas.length) {
+        toast.error(`${r.falhas.length} unidade(s) não foram criadas (${listaCurta(r.falhas.map((f) => f.identificador), 4)}): ${r.falhas[0].motivo} ${r.criadas} foram criadas.`, { duration: 12_000 })
+      } else {
+        toast.success(`${r.criadas} unidade(s) criada(s).`)
+      }
+    } finally {
+      await recarregar()
+    }
+  }
+
+  const contagem: Record<StatusUnidade, number> = { disponivel: 0, reservada: 0, vendida: 0 }
+  for (const u of unidades) contagem[u.status]++
+  const visiveis = filtro === 'todas' ? unidades : unidades.filter((u) => u.status === filtro)
+  const faltam = faltamParaOTotal(e.total_unidades, unidades.length)
+
   const plano = importacao?.plano
   return (
     <div className="grid gap-6">
@@ -339,9 +441,21 @@ function Unidades({ e }: { e: EmpreendimentoCompleto }) {
       )}
       {unidadesQ.isPending ? <Carregando /> : unidadesQ.error ? <ErroConsulta erro={unidadesQ.error} tentarDeNovo={unidadesQ.refetch} /> : (
         <>
+          {faltam > 0 && <GerarUnidades e={e} faltam={faltam} cadastradas={unidades.map((u) => u.identificador)} aoPreparar={setGeracao} />}
           <div className="flex flex-wrap items-center justify-between gap-3">
-            <h3 className="font-semibold">{unidades.length} unidades · {unidades.filter((u) => u.status === 'disponivel').length} disponíveis</h3>
+            <div>
+              <h3 className="font-semibold">{unidades.length} unidades · {contagem.disponivel} disponíveis</h3>
+              {!!e.total_unidades && <p className="text-xs text-muted">{unidades.length} de {e.total_unidades} unidades previstas</p>}
+            </div>
             <label className="btn-ghost cursor-pointer"><Upload size={15} /> Importar espelho de vendas (CSV)<input type="file" accept=".csv,.txt" className="sr-only" onChange={escolherArquivo} /></label>
+          </div>
+          <div role="group" aria-label="Filtrar unidades por status" className="flex flex-wrap gap-1 self-start justify-self-start bg-ink-soft p-1">
+            {FILTROS.map(([k, l]) => (
+              <button key={k} type="button" aria-pressed={filtro === k} onClick={() => setFiltro(k)}
+                className={clsx('px-3 py-1.5 text-sm font-semibold', filtro === k ? 'bg-stone text-ink' : 'text-stone hover:bg-sand')}>
+                {l} ({k === 'todas' ? unidades.length : contagem[k]})
+              </button>
+            ))}
           </div>
           {editId && <p className="flex items-center justify-between text-xs text-bronze">Editando {editando?.identificador} <button type="button" className="inline-flex items-center gap-1 text-muted" onClick={() => setEditId(null)}><X size={12} /> cancelar</button></p>}
           <form key={editId ?? 'novo'} onSubmit={salvarUnidade} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
@@ -354,11 +468,14 @@ function Unidades({ e }: { e: EmpreendimentoCompleto }) {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-sand text-left text-xs uppercase text-muted"><tr><th className="px-4 py-2">Unidade</th><th>m²</th><th>Valor</th><th>Status</th><th /></tr></thead>
               <tbody>
-                {unidades.map((u) => (
+                {visiveis.length === 0 && (
+                  <tr><td colSpan={5} className="px-4 py-6 text-center text-muted">{unidades.length ? 'Nenhuma unidade com este status.' : 'Nenhuma unidade cadastrada.'}</td></tr>
+                )}
+                {visiveis.map((u) => (
                   <tr key={u.id} className="border-t border-line">
                     <td className="px-4 py-2 font-medium">{u.identificador}</td><td>{u.metragem}</td><td>{brl(u.valor)}</td>
-                    <td><select aria-label={`Status de ${u.identificador}`} value={u.status} onChange={(ev) => status(u, ev.target.value as StatusUnidade)} className="border border-line bg-ink-soft px-2 py-1 text-xs">
-                      {Object.entries(STATUS_UNIDADE).map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></td>
+                    <td><select aria-label={`Status de ${u.identificador}`} value={u.status} onChange={(ev) => status(u, ev.target.value as StatusUnidade)} className={clsx('border px-2 py-1 text-xs', COR_STATUS[u.status])}>
+                      {Object.entries(STATUS_UNIDADE).map(([k, v]) => <option key={k} value={k} className="bg-ink-soft font-normal text-stone">{v}</option>)}</select></td>
                     <td className="space-x-3 whitespace-nowrap pr-4 text-right">
                       <button type="button" aria-label={`Editar unidade ${u.identificador}`} className="text-muted hover:text-bronze" onClick={() => setEditId(u.id)}><Pencil size={13} /></button>
                       <button type="button" aria-label={`Excluir unidade ${u.identificador}`} className="text-muted hover:text-perigo"
@@ -376,6 +493,19 @@ function Unidades({ e }: { e: EmpreendimentoCompleto }) {
         </>
       )}
       <ConfirmarExclusao alvo={alvo} aoFechar={() => setAlvo(null)} depois={recarregar} />
+      <ConfirmarModal
+        aberto={!!geracao} titulo="Gerar unidades" rotuloConfirmar={`Gerar ${geracao?.nomes.length ?? ''} unidades`}
+        texto={geracao && (
+          <div className="grid gap-3">
+            <p>Serão criadas <strong>{geracao.nomes.length}</strong> unidade(s), disponíveis: <strong>{listaCurta(geracao.nomes, 6)}</strong>.</p>
+            <p>
+              Metragem: {geracao.metragem !== null ? `${String(geracao.metragem).replace('.', ',')} m²` : 'em branco'} · Valor: {geracao.valor !== null ? brl(geracao.valor) : 'em branco'}.
+            </p>
+            <p><strong>Nenhuma unidade existente é alterada ou apagada.</strong></p>
+          </div>
+        )}
+        aoConfirmar={gerar} aoFechar={() => setGeracao(null)}
+      />
       <ConfirmarModal
         aberto={!!importacao} titulo="Importar espelho de vendas" rotuloConfirmar="Importar"
         texto={plano && (
@@ -451,7 +581,7 @@ function Obra({ e }: { e: EmpreendimentoCompleto }) {
         <textarea name="descricao" rows={3} aria-label="Descrição" defaultValue={editando?.descricao ?? ''} placeholder="Descrição" className="input" />
         <div className="grid grid-cols-2 gap-2">
           <input name="pct" type="number" min={0} max={100} aria-label="Percentual concluído" defaultValue={editando?.percentual ?? ''} placeholder="% concluído" className="input" />
-          <input name="data" type="date" aria-label="Data" defaultValue={editando?.data ?? ''} className="input" />
+          <CampoData name="data" valorInicial={editando?.data ?? ''} rotulo="Data" />
         </div>
         {editId && fotosRestantes.length > 0 && (
           <div className="grid grid-cols-4 gap-2">
@@ -505,7 +635,11 @@ export default function EmpreendimentoEditor() {
       return x
     },
   })
-  const salvo = () => { qc.invalidateQueries({ queryKey: ['admin-emp', id] }); qc.invalidateQueries({ queryKey: ['empreendimentos'] }) }
+  // devolve a promessa: quem precisa da tela já atualizada (chips do lazer) espera o recarregamento
+  const salvo = () => Promise.all([
+    qc.invalidateQueries({ queryKey: ['admin-emp', id] }), qc.invalidateQueries({ queryKey: ['empreendimentos'] }),
+    qc.invalidateQueries({ queryKey: ['construtoras'] }),
+  ])
   if (erro) return <ErroConsulta erro={erro} tentarDeNovo={refetch} />
   if (isLoading || !e) return <Carregando />
   return (
@@ -522,10 +656,9 @@ export default function EmpreendimentoEditor() {
       {aba === 'midias' && <Midias e={e} salvo={salvo} />}
       {aba === 'conteudo' && (
         <div className="grid gap-6">
-          <Repetidor titulo="Itens de lazer" tabela="empreendimento_lazer" empId={e.id} itens={e.empreendimento_lazer as never} salvo={salvo} campos={[{ k: 'titulo', l: 'Título' }, { k: 'descricao', l: 'Descrição' }]} />
+          <EditorLazer e={e} salvo={salvo} />
           <Repetidor titulo="Ficha técnica" tabela="empreendimento_ficha" empId={e.id} itens={e.empreendimento_ficha as never} salvo={salvo} campos={[{ k: 'titulo', l: 'Item (ex.: TORRES: 1)' }, { k: 'descricao', l: 'Descrição' }]} />
-          <Repetidor titulo="Proximidades" tabela="empreendimento_proximidades" empId={e.id} itens={e.empreendimento_proximidades as never} salvo={salvo}
-            campos={[{ k: 'nome', l: 'Local' }, { k: 'distancia', l: 'Distância' }, { k: 'tempo_pe', l: 'A pé' }, { k: 'tempo_carro', l: 'Carro' }, { k: 'tempo_transporte', l: 'Transporte' }, { k: 'tempo_bike', l: 'Bike' }]} />
+          <EditorProximidades e={e} salvo={salvo} />
         </div>
       )}
       {aba === 'unidades' && <Unidades e={e} />}

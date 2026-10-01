@@ -33,13 +33,6 @@ const REGRAS: RegraProvisoria[] = [
     campos: ['permissoes_rede.gerente_como_corretor'], sinalizacao: 'sugestão da doc',
   },
   {
-    codigo: 'A2', titulo: 'Duplicidade por CPF/CNPJ',
-    regra: 'Uma pessoa, um registro. O primeiro cadastro é o dono, com exclusividade de 90 dias. Toda tentativa com documento existente é bloqueada com resposta genérica; depois do prazo, o caso vai para a fila "Duplicidades" e a equipe decide. Nunca há transferência automática.',
-    ondeConfigura: 'configuracao_geral.exclusividade_dias (90) e duplicidade_bloqueios_hora (10)', rota: `${CFG}/geral`,
-    campos: ['configuracao_geral.exclusividade_dias', 'configuracao_geral.duplicidade_bloqueios_hora'],
-    sinalizacao: 'prazo e dono sugeridos; pós-prazo pelo caminho conservador',
-  },
-  {
     codigo: 'A3', titulo: 'Níveis de gerência',
     regra: 'Um nível só (corretor → gerente). O histórico de vínculos já permite crescer sem refazer os dados.',
     ondeConfigura: null, rota: null, campos: [], sinalizacao: 'caminho conservador',
@@ -245,7 +238,7 @@ const REGRAS: RegraProvisoria[] = [
   },
   {
     codigo: 'N10', titulo: 'E-mails opcionais',
-    regra: 'Só boas-vindas do pré-cadastro e documento rejeitado começam ligados.',
+    regra: 'Só boas-vindas do pré-cadastro e documento rejeitado começam ligados (fora os avisos pedidos pelo dono, ligados: exclusividade vencida e solicitação do portal).',
     ondeConfigura: 'notificacoes_config', rota: `${CFG}/notificacoes`,
     campos: ['notificacoes_config.crm.boas_vindas', 'notificacoes_config.crm.documento_rejeitado', 'notificacoes_config.crm.documento_solicitado',
       'notificacoes_config.crm.novo_lead_corretor', 'notificacoes_config.contratos.enviado', 'notificacoes_config.contratos.assinado',
@@ -263,6 +256,24 @@ const REGRAS: RegraProvisoria[] = [
     codigo: 'N17', titulo: 'Base parcelada',
     regra: 'Segue a fórmula do legado: aporte − entrada. O "restante" (valor − aporte) fica só como informação.',
     ondeConfigura: null, rota: null, campos: [], sinalizacao: 'fórmula do legado',
+  },
+]
+
+/**
+ * Regras que deixaram de ser provisórias por decisão do dono (docs/PRD.md §12). O painel as mostra em "Decididas pelo
+ * dono", sem o selo "Provisório". Mesmo formato das provisórias.
+ */
+export const REGRAS_DECIDIDAS: RegraProvisoria[] = [
+  {
+    codigo: 'A2', titulo: 'Duplicidade e exclusividade por CPF/CNPJ',
+    regra: 'Uma pessoa, um registro. A exclusividade do dono é de 180 dias SEM ATIVIDADE: renova a cada atividade da equipe ou do parceiro com o cliente (cadastro, etapa, nota, tarefa, documento, proposta, contrato); o próprio cliente pelo portal não renova. Dentro do prazo, outro parceiro vê "Este CPF já está na carteira de outro parceiro, com exclusividade até dd/mm/aaaa" (nunca o nome do dono). Depois do prazo, o cliente passa para quem cadastrar o CPF (também pelo link de pré-cadastro), com histórico, auditoria e aviso ao antigo dono. Cliente com contrato ou do portal nunca é tomado: o caso vai para a fila "Duplicidades". O limite de consultas por hora continua.',
+    ondeConfigura: 'configuracao_geral.exclusividade_dias (180) e duplicidade_bloqueios_hora (10)', rota: `${CFG}/geral`,
+    campos: [], sinalizacao: 'decisão do dono (29/09/2026)',
+  },
+  {
+    codigo: 'P1', titulo: 'Portal do cliente sem financeiro',
+    regra: 'O portal mostra o contrato (PDF assinado), a linha do tempo da compra (contrato assinado, obra, vistoria e entrega das chaves, com datas que a equipe registra) e o botão "Solicitar" (2ª via de boleto, antecipação de parcelas, agendar vistoria, dúvida sobre o contrato, outro), atendido pela equipe em Clientes com portal. Boleto real e parcelas ficam para a etapa financeira.',
+    ondeConfigura: null, rota: null, campos: [], sinalizacao: 'decisão do dono (29/09/2026)',
   },
 ]
 

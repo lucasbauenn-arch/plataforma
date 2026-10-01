@@ -228,7 +228,7 @@ test('Super: configurações com regras provisórias; a geral manda só o que mu
   await expect(page.getByText('H5', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('link', { name: 'Geral', exact: true }).click()
-  const exclusividade = page.getByLabel('Exclusividade do primeiro cadastro (dias)')
+  const exclusividade = page.getByLabel('Exclusividade sem atividade (dias)')
   await expect(exclusividade).toHaveValue('90', ESPERA)
 
   // validação local: fora da faixa nem chega ao servidor

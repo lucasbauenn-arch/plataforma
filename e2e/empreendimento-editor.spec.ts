@@ -24,7 +24,7 @@ type Escrita = (c: Chamada) => Resposta | null
 
 const erroPg = (status: number, code: string, message: string): Resposta => ({ status, corpo: { code, message, details: null, hint: null } })
 
-function empreendimentoCompleto() {
+function empreendimentoCompleto(extra: Record<string, unknown> = {}) {
   return {
     ...empreendimentoTeste, id: EMP, chamada: null, tagline: null, titulo_hero: null, descricao: null, titulo_lazer: null, descricao_lazer: null,
     endereco: null, bairro: null, cidade: null, uf: null, cep: null, titulo_localizacao: null, texto_localizacao: null, waze_url: null,
@@ -37,6 +37,7 @@ function empreendimentoCompleto() {
     empreendimento_lazer: [{ id: 'l1', empreendimento_id: EMP, titulo: 'Piscina', descricao: 'Adulto e infantil', ordem: 0 }],
     empreendimento_proximidades: [],
     empreendimento_ficha: [],
+    ...extra,
   }
 }
 
@@ -44,13 +45,28 @@ function empreendimentoCompleto() {
  * Sobe o editor como admin. `escrita` decide a resposta de cada PATCH/POST/DELETE nas tabelas simuladas (padrão: tudo
  * certo, devolvendo a linha como o PostgREST com `return=representation`). Devolve o registro de todas as chamadas.
  */
-async function prepararEditor(page: Page, opcoes: { unidades?: UnidadeSim[]; escrita?: Escrita; unidadesComErro?: boolean; obra?: unknown[]; obraComErro?: boolean } = {}) {
+async function prepararEditor(page: Page, opcoes: {
+  unidades?: UnidadeSim[]; escrita?: Escrita; unidadesComErro?: boolean; obra?: unknown[]; obraComErro?: boolean
+  /** Campos do empreendimento sobrescritos (total_unidades, metragem, lazer…). */
+  emp?: Record<string, unknown>
+  /** Construtoras devolvidas pela consulta da lista (select=construtora). */
+  construtoras?: (string | null)[]
+} = {}) {
   await isolarSupabase(page)
   await entrarComo(page, ADMIN, 'admin@e2e.test', 'admin', { nome: 'Admin E2E' })
   const cadastro = opcoes.unidades ?? []
   const chamadas: Chamada[] = []
-  await page.route('**/rest/v1/empreendimentos**', (r) => r.request().method() === 'GET' ? responderRest(r, [empreendimentoCompleto()]) : r.fallback())
-  await page.route(/\/rest\/v1\/(unidades|empreendimento_midias|empreendimento_lazer|obra_atualizacoes)(\?|$)/, async (r) => {
+  await page.route('**/rest/v1/empreendimentos**', (r) => {
+    const req = r.request()
+    const url = new URL(req.url())
+    if (req.method() === 'GET') {
+      if (url.searchParams.get('select') === 'construtora') return responderRest(r, (opcoes.construtoras ?? []).map((construtora) => ({ construtora })))
+      return responderRest(r, [empreendimentoCompleto(opcoes.emp)])
+    }
+    chamadas.push({ metodo: req.method(), caminho: 'empreendimentos', consulta: url.searchParams, corpo: req.postData() ? req.postDataJSON() : null })
+    return r.fulfill({ status: 204, body: '' })
+  })
+  await page.route(/\/rest\/v1\/(unidades|empreendimento_midias|empreendimento_lazer|empreendimento_proximidades|obra_atualizacoes)(\?|$)/, async (r) => {
     const req = r.request()
     const url = new URL(req.url())
     const tabela = url.pathname.split('/').pop()!
@@ -314,4 +330,207 @@ test('lista de empreendimentos do admin: erro do servidor mostra a mensagem com 
   await page.getByRole('button', { name: 'Tentar de novo' }).click()
   await expect(page.getByText('Nenhum empreendimento cadastrado')).toBeVisible()
   expect(erros).toEqual([])
+})
+
+// "Novo" usava window.prompt, que o navegador embutido do app bloqueia sem avisar: agora é um formulário em janela.
+test('lista: Novo abre formulário, cria como rascunho e abre o editor', async ({ page }) => {
+  await isolarSupabase(page)
+  await entrarComo(page, ADMIN, 'admin@e2e.test', 'admin', { nome: 'Admin E2E' })
+  const criados: unknown[] = []
+  await page.route('**/rest/v1/empreendimentos**', async (r) => {
+    if (r.request().method() === 'POST') {
+      criados.push(r.request().postDataJSON())
+      return r.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: EMP }) })
+    }
+    return responderRest(r, [])
+  })
+  await page.goto('/admin/empreendimentos')
+  await page.getByRole('button', { name: 'Novo' }).click()
+  const janela = page.getByRole('dialog', { name: 'Novo empreendimento' })
+  await janela.getByRole('button', { name: 'Criar e editar' }).click()
+  await expect(janela.getByText('Informe o nome (mínimo 3 letras)')).toBeVisible()
+  expect(criados).toHaveLength(0)
+  await janela.getByLabel('Nome do empreendimento').fill('Residencial Árvore Nova')
+  await expect(janela.getByText('/empreendimentos/residencial-arvore-nova')).toBeVisible()
+  await janela.getByRole('button', { name: 'Criar e editar' }).click()
+  await expect(page).toHaveURL(new RegExp(`/admin/empreendimentos/${EMP}$`))
+  expect(criados).toEqual([{ nome: 'Residencial Árvore Nova', slug: 'residencial-arvore-nova', publicado: false }])
+})
+
+// ============ Dados: construtora, previsão de entrega, CEP com endereço e coordenadas ============
+
+/** ViaCEP, BrasilAPI v2 (centro da cidade) e Nominatim (a rua) simulados; devolve as URLs chamadas. */
+async function simularCepECoordenadas(page: Page) {
+  const urls: string[] = []
+  const json = (corpo: unknown) => ({ status: 200, contentType: 'application/json', headers: { 'access-control-allow-origin': '*' }, body: JSON.stringify(corpo) })
+  await page.route(/viacep\.com\.br/, (r) => {
+    urls.push(r.request().url())
+    return r.fulfill(json({ cep: '03333-050', logradouro: 'Rua Coronel Irineu de Castro', bairro: 'Jardim Anália Franco', localidade: 'São Paulo', uf: 'SP', complemento: '' }))
+  })
+  await page.route(/brasilapi\.com\.br/, (r) => {
+    urls.push(r.request().url())
+    return r.fulfill(json({ cep: '03333050', state: 'SP', city: 'São Paulo', location: { type: 'Point', coordinates: { longitude: '-46.63611', latitude: '-23.5475' } } }))
+  })
+  await page.route(/nominatim\.openstreetmap\.org/, (r) => {
+    urls.push(r.request().url())
+    return r.fulfill(json([{ lat: '-23.5585800', lon: '-46.5688690' }]))
+  })
+  return urls
+}
+
+test('Dados: construtora da lista ou "Outra…", UF por lista, CEP preenche endereço e coordenadas; grava só os 8 dígitos', async ({ page }) => {
+  const chamadas = await prepararEditor(page, { construtoras: ['Arken', 'Vitta', 'Arken', null], emp: { construtora: 'Arken', previsao_entrega: '2027-12-01' } })
+  const urls = await simularCepECoordenadas(page)
+  await abrirAba(page, 'Dados')
+
+  const construtora = page.getByLabel('Construtora', { exact: true })
+  await expect(construtora.locator('option')).toHaveText(['Não informada', 'Arken', 'Vitta', 'Outra…'])
+  await expect(construtora).toHaveValue('Arken')
+  await construtora.selectOption({ label: 'Outra…' })
+  await page.getByLabel('Nome da construtora').fill('Construtora Nova')
+  await expect(page.getByLabel('Previsão de entrega')).toHaveValue('01/12/2027')
+
+  const uf = page.getByRole('combobox', { name: 'UF', exact: true })
+  await expect(uf.locator('option')).toHaveCount(28) // "Selecione" + 27
+  await page.getByLabel('CEP', { exact: true }).fill('03333050')
+  await expect(page.getByLabel('Endereço')).toHaveValue('Rua Coronel Irineu de Castro')
+  await expect(page.getByLabel('Bairro')).toHaveValue('Jardim Anália Franco')
+  await expect(page.getByLabel('Cidade')).toHaveValue('São Paulo')
+  await expect(uf).toHaveValue('SP')
+  // a BrasilAPI v2 é consultada primeiro, mas dá o centro da cidade: vale a rua geocodificada no Nominatim
+  await expect(page.getByLabel('Latitude')).toHaveValue('-23.55858')
+  await expect(page.getByLabel('Longitude')).toHaveValue('-46.568869')
+  await expect(page.getByText('Coordenadas da rua preenchidas')).toBeVisible()
+  expect(urls.some((u) => u.includes('brasilapi.com.br/api/cep/v2/03333050'))).toBe(true)
+  expect(urls.filter((u) => u.includes('nominatim'))).toHaveLength(1)
+
+  // continua editável
+  await page.getByLabel('Endereço').fill('Rua Coronel Irineu de Castro, 43')
+  await page.getByRole('button', { name: 'Salvar alterações' }).click()
+  await expect(page.getByText('Salvo', { exact: true })).toBeVisible()
+  const patch = chamadas.find((c) => c.metodo === 'PATCH' && c.caminho === 'empreendimentos')!
+  expect(patch.corpo).toMatchObject({
+    cep: '03333050', uf: 'SP', endereco: 'Rua Coronel Irineu de Castro, 43', bairro: 'Jardim Anália Franco', cidade: 'São Paulo',
+    latitude: -23.55858, longitude: -46.568869, construtora: 'Construtora Nova', previsao_entrega: '2027-12-01',
+  })
+})
+
+test('Dados: CEP incompleto não é gravado (aviso) e nada vai ao servidor', async ({ page }) => {
+  const chamadas = await prepararEditor(page)
+  await simularCepECoordenadas(page)
+  await abrirAba(page, 'Dados')
+  await page.getByLabel('CEP', { exact: true }).fill('0333')
+  await page.getByRole('button', { name: 'Salvar alterações' }).click()
+  await expect(page.getByText('CEP incompleto: informe os 8 dígitos ou deixe o campo vazio.')).toBeVisible()
+  expect(chamadas.filter((c) => c.caminho === 'empreendimentos')).toEqual([])
+})
+
+// ============ Lazer e proximidades com ícones do catálogo ============
+
+test('lazer por chips: liga cria o item com ícone; item antigo de mesmo título aparece ligado e desligar com descrição confirma', async ({ page }) => {
+  const chamadas = await prepararEditor(page)
+  await abrirAba(page, 'Lazer, ficha e proximidades')
+  const catalogo = page.getByRole('group', { name: 'Catálogo de lazer' })
+  // "Piscina" (item antigo, sem chave) conta como ligado pelo título
+  await expect(catalogo.getByRole('button', { name: 'Piscina', exact: true })).toHaveAttribute('aria-pressed', 'true')
+  await expect(catalogo.getByRole('button', { name: 'Academia', exact: true })).toHaveAttribute('aria-pressed', 'false')
+
+  await catalogo.getByRole('button', { name: 'Academia', exact: true }).click()
+  await expect(page.getByText('Academia incluído no lazer')).toBeVisible()
+  expect(chamadas.map((c) => [c.metodo, c.caminho, c.corpo])).toEqual([
+    ['POST', 'empreendimento_lazer', { empreendimento_id: EMP, titulo: 'Academia', icone_catalogo: 'academia', ordem: 1 }],
+  ])
+
+  // desligar um item com descrição pede confirmação (a descrição se perderia)
+  await catalogo.getByRole('button', { name: 'Piscina', exact: true }).click()
+  const modal = page.getByRole('dialog', { name: 'Excluir "Piscina"?' })
+  await expect(modal).toBeVisible()
+  await modal.getByRole('button', { name: 'Cancelar' }).click()
+  expect(chamadas.filter((c) => c.metodo === 'DELETE')).toEqual([])
+
+  // "Outro": item livre, com ícone opcional
+  await catalogo.getByRole('button', { name: 'Outro', exact: true }).click()
+  const form = page.getByRole('form', { name: 'Outro item de lazer' })
+  await form.getByLabel('Título').fill('Espaço de leitura')
+  await form.getByRole('group', { name: 'Ícone do item' }).getByRole('button', { name: 'Lounge', exact: true }).click()
+  await form.getByRole('button', { name: 'Adicionar' }).click()
+  await expect(page.getByText('Item incluído no lazer')).toBeVisible()
+  expect(chamadas.at(-1)).toMatchObject({ metodo: 'POST', caminho: 'empreendimento_lazer', corpo: { titulo: 'Espaço de leitura', descricao: null, icone_catalogo: 'lounge', empreendimento_id: EMP } })
+})
+
+test('lazer: desligar item sem descrição remove direto; proximidade grava a categoria escolhida por chip', async ({ page }) => {
+  const chamadas = await prepararEditor(page, {
+    emp: { empreendimento_lazer: [{ id: 'l2', empreendimento_id: EMP, titulo: 'Sauna', descricao: null, icone: null, icone_catalogo: 'sauna', imagem_url: null, ordem: 0 }] },
+  })
+  await abrirAba(page, 'Lazer, ficha e proximidades')
+  await page.getByRole('group', { name: 'Catálogo de lazer' }).getByRole('button', { name: 'Sauna', exact: true }).click()
+  await expect(page.getByText('Sauna removido do lazer')).toBeVisible()
+  expect(chamadas.map((c) => [c.metodo, c.caminho, c.consulta.get('id')])).toEqual([['DELETE', 'empreendimento_lazer', 'eq.l2']])
+
+  const form = page.getByRole('form', { name: 'Nova proximidade' })
+  await form.getByRole('group', { name: 'Categoria da proximidade' }).getByRole('button', { name: 'Metrô', exact: true }).click()
+  await form.getByLabel('Local').fill('Estação Tatuapé')
+  await form.getByLabel('Distância').fill('800 m')
+  await form.getByLabel('A pé').fill('10 min')
+  await form.getByRole('button', { name: 'Adicionar' }).click()
+  await expect(page.getByText('Proximidade incluída')).toBeVisible()
+  expect(chamadas.at(-1)).toMatchObject({
+    metodo: 'POST', caminho: 'empreendimento_proximidades',
+    corpo: { nome: 'Estação Tatuapé', icone_catalogo: 'metro', distancia: '800 m', tempo_pe: '10 min', tempo_carro: null, empreendimento_id: EMP, ordem: 0 },
+  })
+})
+
+// ============ Unidades: gerar as que faltam, cores e filtro por status ============
+
+test('gerar unidades até o total de Dados: pula nomes existentes, confirma antes e só cria (nada apaga nem altera)', async ({ page }) => {
+  const chamadas = await prepararEditor(page, {
+    emp: { total_unidades: 5, metragem: '48 m²' },
+    unidades: [unidade(U1, 'APTO 01'), unidade(U2, 'apto 3', { status: 'reservada' })],
+  })
+  await abrirAba(page, 'Unidades e materiais')
+  await expect(page.getByText('2 de 5 unidades previstas')).toBeVisible()
+  const cartao = page.getByRole('form', { name: 'Gerar unidades' })
+  await expect(cartao.getByLabel('Prefixo')).toHaveValue('APTO')
+  await expect(cartao.getByLabel('Metragem padrão (m²)')).toHaveValue('48')
+  await cartao.getByLabel('Valor padrão').fill('R$ 350.000,00')
+  await cartao.getByRole('button', { name: 'Gerar 3 unidades' }).click()
+
+  const modal = page.getByRole('dialog', { name: 'Gerar unidades' })
+  await expect(modal).toContainText('APTO 02, APTO 04, APTO 05')
+  await expect(modal).toContainText('Nenhuma unidade existente é alterada ou apagada')
+  expect(chamadas).toEqual([])
+  await modal.getByRole('button', { name: 'Gerar 3 unidades' }).click()
+  await expect(page.getByText('3 unidade(s) criada(s).')).toBeVisible()
+  expect(chamadas.filter((c) => c.metodo !== 'POST')).toEqual([])
+  expect(chamadas.map((c) => c.corpo)).toEqual([[
+    { empreendimento_id: EMP, identificador: 'APTO 02', metragem: 48, valor: 350000, status: 'disponivel' },
+    { empreendimento_id: EMP, identificador: 'APTO 04', metragem: 48, valor: 350000, status: 'disponivel' },
+    { empreendimento_id: EMP, identificador: 'APTO 05', metragem: 48, valor: 350000, status: 'disponivel' },
+  ]])
+})
+
+test('com o total atingido não aparece o cartão de gerar', async ({ page }) => {
+  await prepararEditor(page, { emp: { total_unidades: 1 }, unidades: [unidade(U1, 'APTO 01')] })
+  await abrirAba(page, 'Unidades e materiais')
+  await expect(page.getByText('1 de 1 unidades previstas')).toBeVisible()
+  await expect(page.getByRole('form', { name: 'Gerar unidades' })).toHaveCount(0)
+})
+
+test('unidades: cor por status (reservada = aviso, vendida = sage) e filtro com contagem', async ({ page }) => {
+  await prepararEditor(page, {
+    unidades: [unidade(U1, 'APTO 01'), unidade(U2, 'APTO 02', { status: 'reservada' }), unidade(U9, 'APTO 09', { status: 'vendida' })],
+  })
+  await abrirAba(page, 'Unidades e materiais')
+  await expect(page.getByLabel('Status de APTO 02')).toHaveClass(/text-aviso/)
+  await expect(page.getByLabel('Status de APTO 09')).toHaveClass(/text-sage/)
+  await expect(page.getByLabel('Status de APTO 01')).not.toHaveClass(/text-(aviso|sage)/)
+
+  const filtros = page.getByRole('group', { name: 'Filtrar unidades por status' })
+  await expect(filtros.getByRole('button')).toHaveText(['Todas (3)', 'Disponíveis (1)', 'Reservadas (1)', 'Vendidas (1)'])
+  await filtros.getByRole('button', { name: 'Reservadas (1)' }).click()
+  await expect(filtros.getByRole('button', { name: 'Reservadas (1)' })).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByLabel(/^Status de /)).toHaveCount(1)
+  await expect(page.getByLabel('Status de APTO 02')).toBeVisible()
+  await filtros.getByRole('button', { name: 'Todas (3)' }).click()
+  await expect(page.getByLabel(/^Status de /)).toHaveCount(3)
 })

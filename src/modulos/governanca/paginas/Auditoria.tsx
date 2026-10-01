@@ -14,6 +14,7 @@ import { Campo } from '@/components/Campo'
 import { Carregando } from '@/components/Estados'
 import type { CategoriaAuditoria } from '@/lib/types'
 import type { AuditoriaFiltros, AuditoriaItem } from '../tipos'
+import { CampoData } from '@/components/app/CampoData'
 import {
   ACOES_AUDITORIA, alteracoes, FILTROS_VAZIOS, type FormFiltros, formatarValor, LIMITE_AUDITORIA, montarFiltros, rotuloAcao,
   rotuloCategoria, rotuloOrigem,
@@ -95,10 +96,10 @@ export default function Auditoria() {
           <input className="input" value={form.ator_id} onChange={mudar('ator_id')} placeholder="uuid" />
         </Campo>
         <Campo label="De">
-          <input className="input" type="date" value={form.de} onChange={mudar('de')} />
+          <CampoData valor={form.de} max={form.ate || null} aoMudar={(v) => setForm((f) => ({ ...f, de: v }))} rotulo="De" />
         </Campo>
         <Campo label="Até">
-          <input className="input" type="date" value={form.ate} onChange={mudar('ate')} />
+          <CampoData valor={form.ate} min={form.de || null} aoMudar={(v) => setForm((f) => ({ ...f, ate: v }))} rotulo="Até" />
         </Campo>
         <div className="flex flex-wrap items-center gap-3 sm:col-span-2 lg:col-span-4">
           <button type="submit" className="btn-primary"><Filter size={16} aria-hidden /> Filtrar</button>

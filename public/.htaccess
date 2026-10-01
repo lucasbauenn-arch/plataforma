@@ -65,12 +65,14 @@ Options -Indexes
   # Supabase no localStorage). Nada no app usa script inline nem eval; o que vem de fora é só:
   #   - script/frame/connect: Cloudflare Turnstile (challenges.cloudflare.com);
   #   - style/font: Google Fonts (Jost); style-src leva 'unsafe-inline' (atributos style do React e o <style> do sonner);
-  #   - connect: o projeto Supabase (API, Auth, Storage, Edge Functions e realtime) e os serviços de CEP (ViaCEP, BrasilAPI);
+  #   - connect: o projeto Supabase (API, Auth, Storage, Edge Functions e realtime), os serviços de CEP (ViaCEP, BrasilAPI) e
+  #     o Nominatim do OpenStreetMap (latitude/longitude do empreendimento a partir do endereço, no editor do admin);
   #   - img: o Storage do Supabase e imagens https colocadas pela equipe (midiaUrl aceita URL completa), data: e blob:;
-  #   - frame: YouTube, Google Maps e o tour virtual, cuja URL a equipe cadastra (qualquer https), por isso frame-src https:.
+  #   - frame: YouTube, Google Maps e o tour virtual, cuja URL a equipe cadastra (qualquer https), por isso frame-src https:;
+  #     blob: para o visualizador de PDF dos documentos (arquivo carregado pela URL assinada e mostrado localmente).
   # Se trocar o projeto Supabase (o endereço abaixo) ou adicionar um serviço externo, atualizar aqui, senão o navegador
   # bloqueia a chamada. Para diagnosticar sem bloquear: trocar o nome do cabeçalho por Content-Security-Policy-Report-Only.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://xucwjsycawizrlouqkvh.supabase.co wss://xucwjsycawizrlouqkvh.supabase.co https://viacep.com.br https://brasilapi.com.br https://challenges.cloudflare.com; frame-src https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' data: https://fonts.gstatic.com; img-src 'self' data: blob: https:; connect-src 'self' https://xucwjsycawizrlouqkvh.supabase.co wss://xucwjsycawizrlouqkvh.supabase.co https://viacep.com.br https://brasilapi.com.br https://nominatim.openstreetmap.org https://challenges.cloudflare.com; frame-src https: blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
   <FilesMatch "\.(html|xml|txt)$">
     Header set Cache-Control "no-cache"
   </FilesMatch>

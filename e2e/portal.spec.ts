@@ -19,6 +19,24 @@ const DOC_RENDA = 'f6000000-0000-4000-8000-000000000303'
 const CTR_PENDENTE = 'f6000000-0000-4000-8000-000000000402'
 const CTR_ASSINADO = 'f6000000-0000-4000-8000-000000000403'
 const URL_PDF = 'https://arquivos.e2e.test/assinado.pdf'
+const SOL_1 = 'f6000000-0000-4000-8000-000000000501'
+
+/** portal_linha_do_tempo: o negócio 'n1' (mesmo id de cliente_negocios) com os quatro marcos. */
+const LINHA_DO_TEMPO = [{
+  negocio_id: 'n1', titulo: 'Residencial E2E — APTO 12', empreendimento_id: empreendimentoTeste.id, obra_percentual: 35,
+  marcos: [
+    { tipo: 'contrato_assinado', data_prevista: null, data_realizada: '2026-09-20', origem: 'contrato', observacao: null },
+    { tipo: 'obra', data_prevista: '2027-02-01', data_realizada: null, origem: null, observacao: null },
+    { tipo: 'vistoria', data_prevista: '2027-03-10', data_realizada: null, origem: null, observacao: 'A equipe confirma o horário.' },
+    { tipo: 'entrega_chaves', data_prevista: null, data_realizada: null, origem: null, observacao: null },
+  ],
+}]
+
+const solicitacao = (id: string, numero: number, extra: Record<string, unknown> = {}) => ({
+  id, numero, tipo: 'segunda_via_boleto', negocio: null, mensagem: null, status: 'concluida',
+  resposta: 'Enviamos a 2ª via para o seu e-mail.', criado_em: '2026-09-25T13:00:00Z', atualizado_em: '2026-09-26T13:00:00Z',
+  concluida_em: '2026-09-26T13:00:00Z', ...extra,
+})
 
 const MEUS_DADOS = {
   id: CLIENTE, nome: 'Cliente', sobrenome: 'Portal', cpf: '12345670916', email: 'cliente@e2e.test', telefone: '11900000001',
@@ -70,7 +88,10 @@ async function abrirPortal(page: Page, o: { documentos?: unknown[]; contratos?: 
   const docs = { lista: o.documentos ?? [documento(DOC_CNH, 'CNH', 'rejeitado', { motivo_rejeicao: 'Foto ilegível' }), documento(DOC_RG, 'RG', 'pendente'), documento(DOC_RENDA, 'Comprovante de renda', 'aprovado', { ultimo_envio_em: '2026-09-10T13:00:00Z' })] }
   const documentos = await simularRpc(page, 'portal_documentos', () => docs.lista)
   const contratos = await simularRpc(page, 'portal_contratos', o.contratos ?? [contrato(CTR_ASSINADO, 'assinado'), contrato(CTR_PENDENTE, 'assinatura_pendente')])
-  return { dados, corretor, documentos, contratos, docs, leiturasClientes }
+  const linhaDoTempo = await simularRpc(page, 'portal_linha_do_tempo', LINHA_DO_TEMPO)
+  const sols = { lista: [solicitacao(SOL_1, 12)] as unknown[] }
+  const solicitacoes = await simularRpc(page, 'portal_solicitacoes', () => sols.lista)
+  return { dados, corretor, documentos, contratos, linhaDoTempo, solicitacoes, sols, docs, leiturasClientes }
 }
 
 test('titular vê os próprios dados, o corretor, documentos, contratos, imóvel e obra (tudo pelas RPCs do portal)', async ({ page }) => {
@@ -80,7 +101,7 @@ test('titular vê os próprios dados, o corretor, documentos, contratos, imóvel
   await expect(page.getByRole('heading', { name: 'Bem-vindo(a), Cliente' })).toBeVisible(ESPERA)
   // negócios e obra continuam como hoje
   await expect(page.getByRole('heading', { name: 'Residencial E2E' })).toBeVisible()
-  await expect(page.getByText('35%')).toBeVisible()
+  await expect(page.getByText('35%', { exact: true })).toBeVisible()
   await expect(page.getByText('Manual do proprietário.pdf')).toBeVisible()
 
   const meusDados = page.getByRole('region', { name: 'Meus dados' })
@@ -92,7 +113,7 @@ test('titular vê os próprios dados, o corretor, documentos, contratos, imóvel
   await expect(atendimento.getByText('Carla Corretora')).toBeVisible()
   await expect(atendimento.getByText('CRECI 123456-F')).toBeVisible()
 
-  const contratos = page.getByRole('region', { name: 'Contratos' })
+  const contratos = page.getByRole('region', { name: 'Meus contratos' })
   await expect(contratos.getByText('Residencial E2E — APTO 12')).toBeVisible()
   await expect(contratos.getByText('Residencial E2E — APTO 13')).toBeVisible()
   // download só do assinado
@@ -111,7 +132,7 @@ test('titular vê os próprios dados, o corretor, documentos, contratos, imóvel
   await expect(documentos.getByText('Por segurança, os documentos enviados não ficam disponíveis para download aqui.')).toBeVisible()
 
   // as RPCs do portal não recebem id de cliente e a tabela clientes nunca é lida direto
-  for (const chamadas of [s.dados, s.corretor, s.documentos, s.contratos]) expect(chamadas[0]).toEqual({})
+  for (const chamadas of [s.dados, s.corretor, s.documentos, s.contratos, s.linhaDoTempo, s.solicitacoes]) expect(chamadas[0]).toEqual({})
   expect(s.leiturasClientes).toEqual([])
 })
 
@@ -194,7 +215,7 @@ test('baixa só o PDF assinado do próprio contrato (autorização do servidor +
   await page.context().route('https://arquivos.e2e.test/**', (r) => r.fulfill({ status: 200, contentType: 'text/plain', body: 'PDF assinado (e2e)' }))
 
   await page.goto('/portal-do-cliente/meus-imoveis')
-  const contratos = page.getByRole('region', { name: 'Contratos' })
+  const contratos = page.getByRole('region', { name: 'Meus contratos' })
   const popup = page.waitForEvent('popup')
   await contratos.getByRole('button', { name: 'Baixar PDF assinado' }).click(ESPERA)
   const janela = await popup
@@ -208,7 +229,7 @@ test('download negado pelo servidor: a janela fecha e a mensagem aparece', async
   await abrirPortal(page)
   await simularRpc(page, 'portal_contrato_baixar', null)
   await page.goto('/portal-do-cliente/meus-imoveis')
-  const contratos = page.getByRole('region', { name: 'Contratos' })
+  const contratos = page.getByRole('region', { name: 'Meus contratos' })
   const popup = page.waitForEvent('popup')
   await contratos.getByRole('button', { name: 'Baixar PDF assinado' }).click(ESPERA)
   const janela = await popup
@@ -227,7 +248,7 @@ test('sem contrato a partir do envio, a seção de contratos não aparece; Carte
   const atendimento = page.getByRole('region', { name: 'Seu atendimento' })
   await expect(atendimento.getByText('Equipe de atendimento')).toBeVisible(ESPERA)
   await expect(atendimento.getByText('Carteira Arken')).toHaveCount(0)
-  await expect(page.getByRole('region', { name: 'Contratos' })).toHaveCount(0)
+  await expect(page.getByRole('region', { name: /Meus? contratos?/ })).toHaveCount(0)
 })
 
 test('portal não liberado (ou cadastro inativo): "Cadastro não encontrado" e nada mais é consultado', async ({ page }) => {
@@ -248,4 +269,101 @@ test('parceiro que digita o endereço do portal não vê o portal', async ({ pag
   await page.goto('/portal-do-cliente/meus-imoveis')
   await expect(page).toHaveURL(/\/parceiros\/painel/, ESPERA)
   expect(dados).toHaveLength(0)
+})
+
+test('linha do tempo da compra: marcos com as datas da equipe e a do contrato assinado', async ({ page }) => {
+  await abrirPortal(page)
+  await page.goto('/portal-do-cliente/meus-imoveis')
+  const linha = page.getByRole('region', { name: 'Linha do tempo da compra: Residencial E2E — APTO 12' })
+  await expect(linha).toBeVisible(ESPERA)
+  const marcos = linha.getByRole('listitem')
+  await expect(marcos).toHaveCount(4)
+  await expect(marcos.nth(0)).toContainText('Contrato assinado')
+  await expect(marcos.nth(0)).toContainText('Realizado em 20/09/2026')
+  await expect(marcos.nth(1)).toContainText('Previsto para 01/02/2027')
+  await expect(marcos.nth(1)).toContainText('Andamento: 35%')
+  await expect(marcos.nth(2)).toContainText('Previsto para 10/03/2027')
+  await expect(marcos.nth(2)).toContainText('A equipe confirma o horário.')
+  await expect(marcos.nth(3)).toContainText('Entrega das chaves')
+  await expect(marcos.nth(3)).toContainText('Data a definir')
+  // o contrato continua com o PDF assinado para baixar
+  await expect(page.getByRole('region', { name: 'Meus contratos' }).getByRole('button', { name: 'Baixar PDF assinado' })).toHaveCount(1)
+})
+
+test('solicitar: valida o formulário, envia pela RPC e mostra o pedido com o status; a resposta da equipe aparece', async ({ page }) => {
+  const s = await abrirPortal(page)
+  const envios = await simularRpc(page, 'portal_solicitar', (a: Record<string, unknown>) => {
+    s.sols.lista = [solicitacao('f6000000-0000-4000-8000-000000000502', 13, {
+      tipo: a.p_tipo, negocio: { id: 'n1', titulo: 'Residencial E2E — APTO 12' }, mensagem: a.p_mensagem, status: 'aberta',
+      resposta: null, criado_em: new Date().toISOString(), atualizado_em: null, concluida_em: null,
+    }), ...s.sols.lista]
+    return 'f6000000-0000-4000-8000-000000000502'
+  })
+  await page.goto('/portal-do-cliente/meus-imoveis')
+  const secao = page.getByRole('region', { name: 'Solicitações' })
+  await expect(secao.getByRole('listitem').first()).toContainText('2ª via de boleto', ESPERA)
+  await expect(secao.getByText('Enviamos a 2ª via para o seu e-mail.')).toBeVisible()
+  await expect(secao.getByText('Concluída')).toBeVisible()
+
+  await secao.getByRole('button', { name: 'Solicitar' }).click()
+  const dialogo = page.getByRole('dialog', { name: 'Nova solicitação' })
+  await dialogo.getByRole('button', { name: 'Enviar solicitação' }).click()
+  await expect(dialogo.getByText('Escolha o tipo de solicitação.')).toBeVisible()
+  await dialogo.getByLabel(/O que você precisa/).selectOption({ label: 'Outro assunto' })
+  await dialogo.getByRole('button', { name: 'Enviar solicitação' }).click()
+  await expect(dialogo.getByText('Conte o que você precisa.')).toBeVisible()
+  expect(envios).toHaveLength(0)
+
+  await dialogo.getByLabel(/O que você precisa/).selectOption({ label: 'Agendar vistoria' })
+  await expect(dialogo.getByLabel('Sobre qual imóvel?')).toHaveValue('n1')
+  await dialogo.getByLabel('Mensagem').fill('  Sábado de manhã, se possível  ')
+  await dialogo.getByRole('button', { name: 'Enviar solicitação' }).click()
+  await expect(page.getByText('Solicitação enviada. A equipe Arken vai responder por aqui.')).toBeVisible(ESPERA)
+  await expect(dialogo).toBeHidden()
+  expect(envios).toEqual([{ p_tipo: 'agendar_vistoria', p_negocio_id: 'n1', p_mensagem: 'Sábado de manhã, se possível' }])
+  // a lista é relida do servidor
+  await expect(secao.getByRole('listitem').first()).toContainText('Agendar vistoria', ESPERA)
+  await expect(secao.getByText('Aberta', { exact: true })).toBeVisible()
+  await expect(secao.getByText('nº 000013')).toBeVisible()
+})
+
+test('solicitar: o limite do servidor aparece como mensagem e nada muda na lista', async ({ page }) => {
+  await abrirPortal(page)
+  await simularRpc(page, 'portal_solicitar', erroRpc('P0001', 'Você já fez 5 solicitações nas últimas 24 horas. Aguarde o retorno da equipe.'))
+  await page.goto('/portal-do-cliente/meus-imoveis')
+  const secao = page.getByRole('region', { name: 'Solicitações' })
+  await secao.getByRole('button', { name: 'Solicitar' }).click(ESPERA)
+  const dialogo = page.getByRole('dialog', { name: 'Nova solicitação' })
+  await dialogo.getByLabel(/O que você precisa/).selectOption({ label: '2ª via de boleto' })
+  await dialogo.getByRole('button', { name: 'Enviar solicitação' }).click()
+  await expect(page.getByText('Você já fez 5 solicitações nas últimas 24 horas. Aguarde o retorno da equipe.')).toBeVisible(ESPERA)
+  await expect(dialogo).toBeVisible()
+})
+
+test('equipe: fila de solicitações em Clientes com portal; concluir exige resposta e vai pela RPC', async ({ page }) => {
+  await isolarRede(page)
+  await entrarComo(page, 'a6000000-0000-4000-8000-0000000000a9', 'admin@e2e.test', 'admin', { nome: 'Admin E2E' })
+  const item = {
+    ...solicitacao(SOL_1, 12, { tipo: 'agendar_vistoria', mensagem: 'Sábado de manhã', status: 'aberta', resposta: null,
+      atualizado_em: null, concluida_em: null, negocio: { id: 'n1', titulo: 'Residencial E2E — APTO 12' } }),
+    cliente: { id: CLIENTE, nome: 'Cliente Portal' }, atualizado_por: null,
+  }
+  const listas = await simularRpc(page, 'crm_portal_solicitacoes', { total: 1, itens: [item] })
+  const atualizacoes = await simularRpc(page, 'crm_portal_solicitacao_atualizar', null)
+
+  await page.goto('/admin/clientes?aba=solicitacoes')
+  await expect(page.getByRole('tab', { name: 'Solicitações' })).toHaveAttribute('aria-selected', 'true', ESPERA)
+  await expect(page.getByRole('link', { name: 'Cliente Portal' })).toBeVisible(ESPERA)
+  expect(listas[0]).toEqual({ p_filtros: { abertas: true, cliente_id: null, limite: 50, offset: 0 } })
+
+  await page.getByRole('button', { name: 'Atender Agendar vistoria nº 000012' }).click()
+  const dialogo = page.getByRole('dialog')
+  await dialogo.getByLabel(/Status/).selectOption({ label: 'Concluída' })
+  await dialogo.getByRole('button', { name: 'Salvar' }).click()
+  await expect(dialogo.getByText('Escreva a resposta ao cliente para concluir.')).toBeVisible()
+  expect(atualizacoes).toHaveLength(0)
+  await dialogo.getByLabel(/Resposta ao cliente/).fill('Vistoria marcada para 10/03, às 9h.')
+  await dialogo.getByRole('button', { name: 'Salvar' }).click()
+  await expect(page.getByText('Solicitação concluída. O cliente vê a resposta no portal.')).toBeVisible(ESPERA)
+  expect(atualizacoes).toEqual([{ p_id: SOL_1, p_status: 'concluida', p_resposta: 'Vistoria marcada para 10/03, às 9h.' }])
 })

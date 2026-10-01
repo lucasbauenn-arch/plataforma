@@ -18,6 +18,31 @@ import { type ArmazemTentativas, type RegraLimite, type ResultadoReserva, reserv
 
 export const DOMINIO_PORTAL = "portal.arkenincorporadora.com.br";
 export const NAO_ENCONTRADO = "CPF não encontrado. Fale com nosso atendimento.";
+export const ACESSO_SUSPENSO = "Seu acesso ao Portal do Cliente está bloqueado. Fale com nosso atendimento para liberar.";
+export const CADASTRO_INATIVO = "Seu cadastro está suspenso. Fale com nosso atendimento.";
+
+export type SituacaoCpf = "nao_encontrado" | "bloqueado" | "inativo" | "liberado";
+
+/** Mensagem e status HTTP quando o login não segue (CPF sem acesso liberado). */
+export function respostaSemAcesso(situacao: SituacaoCpf): { status: number; mensagem: string; codigo: string } {
+  if (situacao === "bloqueado") return { status: 403, mensagem: ACESSO_SUSPENSO, codigo: "acesso_bloqueado" };
+  if (situacao === "inativo") return { status: 403, mensagem: CADASTRO_INATIVO, codigo: "cadastro_suspenso" };
+  return { status: 404, mensagem: NAO_ENCONTRADO, codigo: "nao_encontrado" };
+}
+
+/**
+ * Por que o CPF não entrou (RPC de sistema portal_situacao_cpf, migration 20). Sem a RPC ou com erro, cai no
+ * "não encontrado" de sempre: a mensagem mais detalhada nunca pode impedir a resposta.
+ */
+export async function situacaoDoCpf(rpc: (cpf: string) => Promise<RespostaBanco>, cpf: string): Promise<SituacaoCpf> {
+  try {
+    const { data, error } = await rpc(cpf);
+    if (error) return "nao_encontrado";
+    return data === "bloqueado" || data === "inativo" ? data : "nao_encontrado";
+  } catch {
+    return "nao_encontrado";
+  }
+}
 export const MENSAGEM_LIMITE = "Muitas tentativas. Aguarde 15 minutos e tente de novo.";
 
 /** Por IP (/64 no IPv6; sem IP, balde comum): 10 erros ou 30 tentativas em 15 min (o limite que já existia). */

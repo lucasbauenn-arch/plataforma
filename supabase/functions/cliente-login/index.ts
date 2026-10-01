@@ -16,7 +16,7 @@ import { respostaDoBloqueio } from "../_shared/limite-ip.ts";
 import { armazemTentativas, chaveApi, clienteAdmin } from "../_shared/supabase.ts";
 import { createClient, type SupabaseClient } from "../_shared/supabase-js.ts";
 import {
-  type ContaAuth, type GatewayPortal, type PortaLocalizar, NAO_ENCONTRADO, REGRA_PORTAL_IP, cpfValido,
+  type ContaAuth, type GatewayPortal, type PortaLocalizar, REGRA_PORTAL_IP, cpfValido, respostaSemAcesso, situacaoDoCpf,
   localizarClientePortal, reservarLoginPortal, resolverContaDoPortal, soDigitos,
 } from "./portal.ts";
 
@@ -116,7 +116,9 @@ Deno.serve(criarRota({ nome: "cliente-login", cors: corsDoSite() }, async (req, 
   const cliente = await localizarClientePortal(portaLocalizar(admin), cpf);
   if (!cliente) {
     await registrar(false);
-    return r.erro(404, NAO_ENCONTRADO);
+    // CPF existe mas sem acesso: diz o motivo (suspenso ou inativo); inexistente e anonimizado seguem "não encontrado"
+    const sem = respostaSemAcesso(await situacaoDoCpf(async (c) => await admin.rpc("portal_situacao_cpf", { p_cpf: c }), cpf));
+    return r.erro(sem.status, sem.mensagem, { codigo: sem.codigo });
   }
 
   // conta Auth própria do cliente, com e-mail interno (nunca usado para envio) e o marcador do cliente. Não reaproveita

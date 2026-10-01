@@ -164,6 +164,14 @@ export const portalMeuCorretor = rpcSemArgs('portal_meu_corretor')
 export const portalDocumentos = rpcSemArgs('portal_documentos')
 export const portalContratos = rpcSemArgs('portal_contratos')
 export const portalContratoBaixar = rpc('portal_contrato_baixar')
+export const portalLinhaDoTempo = rpcSemArgs('portal_linha_do_tempo')
+export const portalSolicitacoes = rpcSemArgs('portal_solicitacoes')
+export const portalSolicitar = rpc('portal_solicitar')
+// equipe (só internos): marcos da compra e fila de solicitações do portal
+export const crmPortalMarcos = rpc('crm_portal_marcos')
+export const crmPortalMarcoSalvar = rpc('crm_portal_marco_salvar')
+export const crmPortalSolicitacoes = rpc('crm_portal_solicitacoes')
+export const crmPortalSolicitacaoAtualizar = rpc('crm_portal_solicitacao_atualizar')
 
 // ---------- configurações (Super) [WP4/WP6] ----------
 export const configAtualizar = rpc('config_atualizar')

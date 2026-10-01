@@ -1,6 +1,6 @@
 -- CRM: cadastro, ficha, lista, duplicidades, leads, propostas e pré-cadastro [WP2]
 -- (docs/ARQUITETURA_EXPANSAO.md §1.1 A1/A2/N9/N12, §3.4, §3.5, §4.4, §4.5, §4.6, §5.4, §6.1, §8.5).
--- A2 dentro e depois do prazo (datas simuladas): 'indisponivel' sem detalhe, nunca transfere; mesmo dono →
+-- A2 dentro e depois do prazo (datas simuladas): 'indisponivel' sem dono (a regra por atividade e a transferência depois do prazo estão em exclusividade.test.sql); mesmo dono →
 -- 'ja_na_sua_carteira'; limite por hora (conferido antes de olhar o documento); crm_ficha grava acesso/consultar com
 -- cliente_id e a negação devolve nulo e grava acesso_negado; a lista grava os ids e não o texto da busca; pré-cadastro
 -- cria NC, 4 documentos, consentimento e portal_liberado=false; conversão de lead. Cada RPC: negada fora do escopo
@@ -129,9 +129,9 @@ select is(pg_temp.cadastrar('Novo Do CA1a', pg_temp.cpf(900000001)) ->> 'situaca
 select pg_temp.sair();
 select ok((select c.corretor_id = pg_temp.parceiro('ca1a') and c.gerente_id = pg_temp.parceiro('ga1')
              and c.imobiliaria_id = pg_temp.imobiliaria('a') and c.etapa = 'novo_contato' and c.origem = 'cadastro_interno'
-             and not c.portal_liberado and c.exclusividade_ate between now() + interval '89 days' and now() + interval '91 days'
+             and not c.portal_liberado and c.exclusividade_ate between now() + interval '179 days' and now() + interval '181 days'
            from public.clientes c where c.id = pg_temp.cli_cpf(pg_temp.cpf(900000001))),
-          'cliente novo: corretor = quem cadastrou, cadeia derivada, NC, cadastro_interno, portal fechado, exclusividade 90 dias');
+          'cliente novo: corretor = quem cadastrou, cadeia derivada, NC, cadastro_interno, portal fechado, exclusividade 180 dias');
 select ok(exists (select 1 from public.lgpd_consentimentos l where l.cliente_id = pg_temp.cli_cpf(pg_temp.cpf(900000001))
                     and l.origem = 'declarado' and l.registrado_por = pg_temp.usuario('ca1a') and l.termo_id = pg_temp.termo()),
           'consentimento declarado (N12) com quem registrou e o termo vigente');
@@ -246,8 +246,8 @@ select ok((select c.tipo_pessoa = 'juridica' and c.cnpj = '11222335000170' and c
 -- ============ 2. A2: DUPLICIDADE ============
 -- dentro do prazo (c1 com exclusividade até daqui a 30 dias)
 select pg_temp.entrar('ca2a');
-select is(pg_temp.cadastrar('Tentativa', '12345670916'), '{"situacao":"indisponivel","id":null}'::jsonb,
-          'A2 dentro do prazo: indisponível, sem dono nem data');
+select is(pg_temp.cadastrar('Tentativa', '12345670916') - 'exclusividade_ate', '{"situacao":"indisponivel","id":null}'::jsonb,
+          'A2 dentro do prazo: indisponível, sem dono (só a data da exclusividade, coberta em exclusividade.test.sql)');
 select pg_temp.sair();
 select ok(exists (select 1 from public.cliente_duplicidades d where d.cliente_id = pg_temp.cliente('c1')
                     and d.resultado = 'bloqueado_exclusividade' and d.tentado_por = pg_temp.usuario('ca2a')
@@ -262,11 +262,11 @@ select ok(pg_temp.aud('tentativa_duplicada', 'cliente_duplicidades', pg_temp.cli
 update public.clientes set exclusividade_ate = now() - interval '1 day' where id = pg_temp.cliente('c1');
 select pg_temp.entrar('ca2a');
 select is(pg_temp.cadastrar('Tentativa 2', '12345670916'), '{"situacao":"indisponivel","id":null}'::jsonb,
-          'A2 depois do prazo: continua indisponível');
+          'depois do prazo, cliente do portal: continua indisponível (não é tomado, migration 23)');
 select pg_temp.sair();
 select is(pg_temp.dup(pg_temp.cliente('c1'), 'bloqueado_pos_prazo'), 1, 'depois do prazo: bloqueado_pos_prazo (vai para a fila)');
 select is((select c.corretor_id from public.clientes c where c.id = pg_temp.cliente('c1')), pg_temp.parceiro('ca1a'),
-          'A2 nunca transfere sozinho');
+          'cliente do portal nunca é tomado (a fila decide)');
 -- contrato ativo
 select pg_temp.entrar('cb1a');
 select is(pg_temp.cadastrar('Tentativa 3', '12345671050') ->> 'situacao', 'indisponivel', 'cliente com contrato: indisponível');

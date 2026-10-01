@@ -130,3 +130,14 @@ export async function abrirArquivo(arquivoId: Uuid): Promise<void> {
     throw e
   }
 }
+
+/**
+ * Busca o conteúdo do arquivo para o visualizador (lightbox): mesma autorização auditada de `abrirArquivo`
+ * (`crm_documento_baixar` + Edge `baixar-arquivo`), mas o arquivo vira um Blob local, com o tipo gravado no envio.
+ */
+export async function carregarArquivo(arquivoId: Uuid, mimeType: string): Promise<Blob> {
+  const url = await urlDoDownload(await crmDocumentoBaixar({ p_arquivo_id: arquivoId }))
+  const resposta = await fetch(url)
+  if (!resposta.ok) throw new ErroRpc('DESCONHECIDO', 'Não foi possível carregar o arquivo. Tente de novo.', { rpc: 'visualizar' })
+  return new Blob([await resposta.arrayBuffer()], { type: mimeType })
+}

@@ -182,6 +182,8 @@ async function abrirPortal(page: Page, extra: { horas?: number } = {}) {
   await simularRpc(page, 'portal_meu_corretor', { nome: 'Carla Corretora', telefone: '11988887777', email: 'carla@e2e.test', creci: '123456-F', imobiliaria_nome: 'Imobiliária E2E', virtual: false })
   await simularRpc(page, 'portal_documentos', [])
   await simularRpc(page, 'portal_contratos', [])
+  await simularRpc(page, 'portal_linha_do_tempo', [])
+  await simularRpc(page, 'portal_solicitacoes', [])
 }
 
 test('portal: falha em "Andamento da obra" (ex.: sessão vencida) só avisa aquela seção, e "Tentar de novo" recupera', async ({ page }) => {

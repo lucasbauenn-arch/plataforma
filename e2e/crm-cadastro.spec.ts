@@ -48,13 +48,13 @@ function ficha(extra: { cliente?: Record<string, unknown>; permissoes?: Record<s
   }
 }
 
-test('corretor cadastra cliente: documento de outro dá resposta genérica; novo abre a ficha', async ({ page }) => {
+test('corretor cadastra cliente: CPF na exclusividade de outro mostra só a data (nunca o dono); novo abre a ficha', async ({ page }) => {
   await redeFechada(page)
   await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000a1', 'corretor@e2e.test', 'corretor', { nome: 'Corretor E2E' })
   await simularRpc(page, 'lgpd_termo_vigente', TERMO)
   let vez = 0
   const cadastros = await simularRpc(page, 'crm_cadastrar_cliente', () =>
-    ++vez === 1 ? { situacao: 'indisponivel', id: null } : { situacao: 'criado', id: CLIENTE_ID })
+    ++vez === 1 ? { situacao: 'indisponivel', id: null, exclusividade_ate: '2027-01-16T02:00:00Z' } : { situacao: 'criado', id: CLIENTE_ID })
   await simularRpc(page, 'crm_ficha', ficha())
 
   await page.goto('/parceiros/painel/crm/novo')
@@ -68,9 +68,9 @@ test('corretor cadastra cliente: documento de outro dá resposta genérica; novo
 
   await page.getByRole('checkbox', { name: /Declaro que o cliente consentiu/ }).check()
   await page.getByRole('button', { name: 'Cadastrar cliente' }).click()
-  await expect(page.getByText(/não está disponível para cadastro/)).toBeVisible()
-  // sem dono nem data: a tela não mostra nada além da mensagem genérica
-  await expect(page.getByText(/exclusividade até|corretor responsável:/i)).toHaveCount(0)
+  // decisão do dono (29/09/2026): a data da exclusividade (no fuso de São Paulo), nunca o nome do outro parceiro
+  await expect(page.getByRole('alert')).toContainText('Este CPF já está na carteira de outro parceiro, com exclusividade até 15/01/2027.')
+  await expect(page.getByText(/corretor responsável:|Corretor Dono/i)).toHaveCount(0)
 
   await page.getByRole('button', { name: 'Cadastrar cliente' }).click()
   await expect(page.getByRole('heading', { name: 'Maria Souza' })).toBeVisible()
@@ -120,6 +120,63 @@ test('ficha, aba Dados: a edição manda só o que mudou e o documento preenchid
   await page.getByRole('button', { name: 'Salvar alterações' }).click()
   await expect(page.getByText('Dados salvos.')).toBeVisible()
   expect(edicoes).toEqual([{ p_id: CLIENTE_ID, p_dados: { email: 'maria.nova@cliente.test' } }])
+})
+
+test('ficha, aba Propostas: unidade disponível do empreendimento escolhido (troca de empreendimento limpa a unidade)', async ({ page }) => {
+  const EMP_A = 'e2e00000-0000-4000-8000-0000000000e1'
+  const EMP_B = 'e2e00000-0000-4000-8000-0000000000e2'
+  const base = { publicado: true, destaque_home: false, ordem: 0, capa_url: null, videos: [], aceita_fgts: false, mostrar_no_portfolio: false }
+  await redeFechada(page)
+  await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000a1', 'corretor@e2e.test', 'corretor', { nome: 'Corretor E2E' })
+  await simularRpc(page, 'crm_ficha', ficha())
+  await simularRpc(page, 'propostas_listar', { total: 0, itens: [] })
+  const criadas = await simularRpc(page, 'propostas_criar', 'e2e00000-0000-4000-8000-00000000f001')
+  await page.route('**/rest/v1/empreendimentos**', (r) => responderRest(r, [
+    { ...base, id: EMP_A, slug: 'emp-a', nome: 'Residencial A', estagio: 'lancamento' },
+    { ...base, id: EMP_B, slug: 'emp-b', nome: 'Residencial B', estagio: 'em_construcao' },
+  ]))
+  await page.route('**/rest/v1/unidades**', (r) => {
+    const q = new URL(r.request().url()).searchParams
+    const unidades = q.get('status') !== 'eq.disponivel' ? [] : q.get('empreendimento_id') === `eq.${EMP_A}`
+      ? [{ id: 'ua1', identificador: 'APTO 101', metragem: 52.5, valor: 480000 }] : []
+    return responderRest(r, unidades)
+  })
+
+  await page.goto(`/parceiros/painel/crm/${CLIENTE_ID}?aba=propostas`)
+  await expect(page.getByRole('heading', { name: 'Fazer proposta' })).toBeVisible()
+  await expect(page.getByLabel('Unidade (opcional)')).toHaveCount(0)
+  await page.getByLabel('Empreendimento').selectOption({ label: 'Residencial A' })
+  const unidade = page.getByLabel('Unidade (opcional)')
+  await expect(unidade.locator('option', { hasText: /^APTO 101 · 52,5 m² · R\$\s480\.000$/ })).toHaveCount(1)
+  await unidade.selectOption('ua1')
+  await page.getByLabel('Empreendimento').selectOption({ label: 'Residencial B' })
+  await expect(unidade).toHaveValue('')
+  await expect(unidade.locator('option')).toHaveText(['Nenhuma unidade disponível'])
+  await page.getByLabel('Empreendimento').selectOption({ label: 'Residencial A' })
+  await unidade.selectOption('ua1')
+  await page.getByLabel('Proposta').fill('Entrada de 10% e saldo financiado pela Caixa.')
+  await page.getByRole('button', { name: 'Enviar proposta' }).click()
+  await expect(page.getByText('Proposta enviada!')).toBeVisible()
+  expect(criadas).toEqual([{
+    p_empreendimento_id: EMP_A, p_cliente_id: CLIENTE_ID, p_unidade_id: 'ua1', p_texto: 'Entrada de 10% e saldo financiado pela Caixa.',
+  }])
+})
+
+test('ficha, aba Propostas: falha ao carregar as unidades vira erro com "Tentar de novo" (nunca lista vazia)', async ({ page }) => {
+  await redeFechada(page)
+  await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000a1', 'corretor@e2e.test', 'corretor', { nome: 'Corretor E2E' })
+  await simularRpc(page, 'crm_ficha', ficha())
+  await simularRpc(page, 'propostas_listar', { total: 0, itens: [] })
+  await page.route('**/rest/v1/empreendimentos**', (r) => responderRest(r, [{
+    id: 'e2e00000-0000-4000-8000-0000000000e1', slug: 'emp-a', nome: 'Residencial A', estagio: 'lancamento', publicado: true,
+    destaque_home: false, ordem: 0, capa_url: null, videos: [], aceita_fgts: false, mostrar_no_portfolio: false,
+  }]))
+  await page.route('**/rest/v1/unidades**', (r) => r.fulfill({ status: 500, contentType: 'application/json', body: JSON.stringify({ code: 'XX000', message: 'falha simulada' }) }))
+
+  await page.goto(`/parceiros/painel/crm/${CLIENTE_ID}?aba=propostas`)
+  await page.getByLabel('Empreendimento').selectOption({ label: 'Residencial A' })
+  await expect(page.getByRole('button', { name: 'Tentar de novo' })).toBeVisible()
+  await expect(page.getByText('Nenhuma unidade disponível')).toHaveCount(0)
 })
 
 test('ficha fora do escopo: o servidor devolve nulo e a tela não revela nada', async ({ page }) => {
@@ -286,4 +343,59 @@ test('fila de duplicidades: dentro da exclusividade só "manter" (o servidor nã
   await expect(page.getByText('Transferência só depois do prazo')).toBeVisible()
   await expect(page.getByRole('button', { name: 'Transferir' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Manter dono' })).toBeVisible()
+})
+
+test('CPF de outro parceiro sem data (cliente com contrato ou do portal): só "já está na carteira de outro parceiro"', async ({ page }) => {
+  await redeFechada(page)
+  await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000a1', 'corretor@e2e.test', 'corretor', { nome: 'Corretor E2E' })
+  await simularRpc(page, 'lgpd_termo_vigente', TERMO)
+  await simularRpc(page, 'crm_cadastrar_cliente', { situacao: 'indisponivel', id: null })
+  await page.goto('/parceiros/painel/crm/novo')
+  await page.getByLabel(/^Nome/).fill('Maria')
+  await page.getByLabel('CPF').fill('52998224725')
+  await page.getByLabel('Telefone / WhatsApp').fill('11988887777')
+  await page.getByRole('checkbox', { name: /Declaro que o cliente consentiu/ }).check()
+  await page.getByRole('button', { name: 'Cadastrar cliente' }).click()
+  await expect(page.getByRole('alert')).toContainText('Este CPF já está na carteira de outro parceiro. Se precisar de ajuda, fale com a equipe Arken.')
+  await expect(page.getByText(/exclusividade até/)).toHaveCount(0)
+})
+
+test('exclusividade vencida: o cliente passa para quem cadastrou e a ficha abre com o aviso', async ({ page }) => {
+  await redeFechada(page)
+  await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000a1', 'corretor@e2e.test', 'corretor', { nome: 'Corretor E2E' })
+  await simularRpc(page, 'lgpd_termo_vigente', TERMO)
+  const cadastros = await simularRpc(page, 'crm_cadastrar_cliente', { situacao: 'transferido', id: CLIENTE_ID })
+  await simularRpc(page, 'crm_ficha', ficha())
+  await page.goto('/parceiros/painel/crm/novo')
+  await page.getByLabel(/^Nome/).fill('Maria')
+  await page.getByLabel('CPF').fill('52998224725')
+  await page.getByLabel('Telefone / WhatsApp').fill('11988887777')
+  await page.getByRole('checkbox', { name: /Declaro que o cliente consentiu/ }).check()
+  await page.getByRole('button', { name: 'Cadastrar cliente' }).click()
+  await expect(page.getByText(/a exclusividade venceu por falta de atividade: ele passou para a sua carteira/)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Maria Souza' })).toBeVisible()
+  await expect(page).toHaveURL(new RegExp(`/parceiros/painel/crm/${CLIENTE_ID}$`))
+  expect(cadastros).toHaveLength(1)
+})
+
+test('fila de duplicidades: transferência automática por exclusividade vencida aparece já resolvida', async ({ page }) => {
+  await redeFechada(page)
+  await entrarComo(page, 'e2e00000-0000-4000-8000-0000000000b1', 'admin@e2e.test', 'admin', { nome: 'Admin E2E' })
+  await simularRpc(page, 'crm_duplicidades_listar', {
+    total: 1,
+    itens: [{
+      id: 'e2e00000-0000-4000-8000-00000000f003',
+      cliente: { id: CLIENTE_ID, nome: 'Maria Souza', etapa: 'novo_contato', corretor: { id: 'x2', nome: 'Corretora Nova' }, imobiliaria: { id: 'i1', nome: 'Imobiliária A' }, exclusividade_ate: '2027-03-28T12:00:00Z' },
+      tentado_por: { profile_id: 'p2', nome: 'Corretora Nova', papel: 'corretor' },
+      tentado_por_parceiro: { id: 'x2', nome: 'Corretora Nova', tipo: 'corretor', imobiliaria: { id: 'i1', nome: 'Imobiliária A' } },
+      origem: 'cadastro_interno', resultado: 'transferido_exclusividade', ocorrido_em: '2026-09-29T12:00:00Z',
+      resolvido_em: '2026-09-29T12:00:00Z', resolvido_por: null, decisao: 'transferir', motivo_decisao: 'exclusividade vencida',
+      pode_transferir: false,
+    }],
+  })
+  await page.goto('/admin/duplicidades')
+  await expect(page.getByRole('table').getByText('Transferido (exclusividade vencida)')).toBeVisible()
+  await expect(page.getByText(/Automático ·/)).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Transferir' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Manter dono' })).toHaveCount(0)
 })

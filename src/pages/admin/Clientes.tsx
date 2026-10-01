@@ -1,11 +1,12 @@
 import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { Plus } from 'lucide-react'
 import { crmListar } from '@/lib/rpc'
 import { data, mascaraTelefone } from '@/lib/format'
 import { Carregando } from '@/components/Estados'
 import { CabecalhoPagina } from '@/components/app/CabecalhoPagina'
+import { Abas } from '@/components/app/Abas'
 import { ErroConsulta } from '@/components/app/Consulta'
 import { SeloStatus } from '@/components/app/Etiqueta'
 import { BarraFiltros, CampoBusca } from '@/components/app/Filtros'
@@ -13,15 +14,36 @@ import { Paginacao } from '@/components/app/Paginacao'
 import { Tabela } from '@/components/app/Tabela'
 import { chavesCrm, nomeCompleto } from '@/modulos/crm/api-clientes'
 import type { CrmFiltros } from '@/modulos/crm/tipos'
+import { SolicitacoesEquipe } from '@/modulos/portal/componentes/SolicitacoesEquipe'
 
 const LIMITE = 50
 
 /**
  * Clientes com portal (internos) [WP2]: a antiga tela /admin/clientes virou a lista do CRM filtrada pelos clientes com
  * portal liberado (crm_listar, auditada). Negócios, arquivos e acessos ficam na aba Portal da ficha; "Novo cliente do
- * portal" é o cadastro do CRM seguido de crm_liberar_portal.
+ * portal" é o cadastro do CRM seguido de crm_liberar_portal. Aba "Solicitações" (decisão do dono, 29/09/2026): a fila
+ * dos pedidos abertos pelos clientes no portal (2ª via, antecipação, vistoria, dúvida, outro), com status e resposta.
  */
 export default function ClientesAdmin() {
+  const [params, setParams] = useSearchParams()
+  const aba = params.get('aba') === 'solicitacoes' ? 'solicitacoes' : 'clientes'
+  return (
+    <>
+      <CabecalhoPagina
+        eyebrow="Portal do cliente" titulo="Clientes com portal"
+        subtitulo="Compradores com acesso ao portal por CPF. Imóveis, marcos da compra, arquivos e acessos ficam na aba Portal da ficha."
+        acoes={<Link to="/admin/crm/novo?portal=1" className="btn-primary"><Plus size={16} aria-hidden /> Novo cliente do portal</Link>}
+      />
+      <div className="mb-6">
+        <Abas rotulo="Clientes com portal" ativa={aba} aoMudar={(a) => setParams(a === 'clientes' ? {} : { aba: a }, { replace: true })}
+          abas={[{ id: 'clientes', rotulo: 'Clientes' }, { id: 'solicitacoes', rotulo: 'Solicitações' }]} />
+      </div>
+      {aba === 'solicitacoes' ? <SolicitacoesEquipe /> : <ListaClientesPortal />}
+    </>
+  )
+}
+
+function ListaClientesPortal() {
   const [busca, setBusca] = useState('')
   const [offset, setOffset] = useState(0)
   const filtros: CrmFiltros = { busca: busca || null, portal_liberado: true, ordem: 'nome' }
@@ -33,11 +55,6 @@ export default function ClientesAdmin() {
 
   return (
     <>
-      <CabecalhoPagina
-        eyebrow="Portal do cliente" titulo="Clientes com portal"
-        subtitulo="Compradores com acesso ao portal por CPF. Imóveis, arquivos e acessos ficam na aba Portal da ficha."
-        acoes={<Link to="/admin/crm/novo?portal=1" className="btn-primary"><Plus size={16} aria-hidden /> Novo cliente do portal</Link>}
-      />
       <BarraFiltros>
         <CampoBusca valor={busca} aoMudar={(v) => { setBusca(v); setOffset(0) }} placeholder="Nome, e-mail ou telefone" />
       </BarraFiltros>

@@ -104,8 +104,16 @@ const organizacao = {
   telephone: org.telefone, email: org.email,
   address: { '@type': 'PostalAddress', streetAddress: org.endereco, addressLocality: org.cidade, addressRegion: org.uf, postalCode: org.cep, addressCountry: 'BR' },
 }
+// Portfólio = todos os empreendimentos publicados, em qualquer estágio (igual a src/pages/Portfolio.tsx;
+// a coluna mostrar_no_portfolio não filtra mais nada).
+const portfolio = {
+  '@context': 'https://schema.org', '@type': 'ItemList', name: `Portfólio — ${seo.nome}`, url: `${seo.site}/portfolio`,
+  numberOfItems: emps.length,
+  itemListElement: emps.map((e, i) => ({ '@type': 'ListItem', position: i + 1, name: e.nome, url: `${seo.site}/empreendimentos/${e.slug}` })),
+}
+const dadosDaPagina = { '/': organizacao, '/portfolio': portfolio }
 for (const [caminho, p] of Object.entries(seo.paginas)) {
-  gravar(caminho, html({ caminho, ...p, imagem: og('padrao'), dados: caminho === '/' ? organizacao : undefined }))
+  gravar(caminho, html({ caminho, ...p, imagem: og('padrao'), dados: dadosDaPagina[caminho] }))
 }
 
 for (const e of emps) {

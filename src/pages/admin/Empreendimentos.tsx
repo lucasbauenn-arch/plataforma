@@ -1,5 +1,9 @@
+import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useForm, useWatch } from 'react-hook-form'
+import { zodResolver } from '@hookform/resolvers/zod'
+import { z } from 'zod'
 import { toast } from 'sonner'
 import { Plus } from 'lucide-react'
 import { supabase } from '@/lib/supabase'
@@ -9,6 +13,8 @@ import type { Empreendimento } from '@/lib/types'
 import { Imagem } from '@/components/Imagem'
 import { Carregando, Vazio } from '@/components/Estados'
 import { ErroConsulta } from '@/components/app/Consulta'
+import { Modal } from '@/components/app/Modal'
+import { Campo } from '@/components/Campo'
 import { Titulo, Tabela, Badge } from './ui'
 
 export default function EmpreendimentosAdmin() {
@@ -22,17 +28,10 @@ export default function EmpreendimentosAdmin() {
     },
   })
   const lista = q.data ?? []
-  async function criar() {
-    const nome = prompt('Nome do empreendimento')
-    if (!nome) return
-    const slug = nome.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
-    const { data, error } = await supabase.from('empreendimentos').insert({ nome, slug, publicado: false }).select('id').single()
-    if (error) return toast.error(error.code === '23505' ? 'Já existe um empreendimento com esse nome' : mensagemErro(error))
-    nav(`/admin/empreendimentos/${data.id}`)
-  }
+  const [criando, setCriando] = useState(false)
   return (
     <>
-      <Titulo acao={<button className="btn-primary" onClick={criar}><Plus size={16} /> Novo</button>}>Empreendimentos</Titulo>
+      <Titulo acao={<button type="button" className="btn-primary" onClick={() => setCriando(true)}><Plus size={16} /> Novo</button>}>Empreendimentos</Titulo>
       {q.isPending ? <Carregando /> : q.error ? <ErroConsulta erro={q.error} tentarDeNovo={q.refetch} /> : lista.length === 0 ? (
         <Vazio titulo="Nenhum empreendimento cadastrado" texto="Use o botão Novo para criar o primeiro." />
       ) : (
@@ -50,6 +49,48 @@ export default function EmpreendimentosAdmin() {
         ))}
       </Tabela>
       )}
+      {criando && <NovoEmpreendimento aoFechar={() => setCriando(false)} aoCriar={(id) => nav(`/admin/empreendimentos/${id}`)} />}
     </>
+  )
+}
+
+/** Endereço público a partir do nome: sem acento, minúsculas, hífens. */
+function slugDoNome(nome: string) {
+  return nome.normalize('NFKD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
+}
+
+const esquemaNovo = z.object({ nome: z.string().trim().min(3, 'Informe o nome (mínimo 3 letras)').max(120, 'Nome longo demais') })
+type DadosNovo = z.infer<typeof esquemaNovo>
+
+/** Cria o empreendimento como rascunho (não publicado) e abre o editor. */
+function NovoEmpreendimento({ aoFechar, aoCriar }: { aoFechar: () => void; aoCriar: (id: string) => void }) {
+  const { register, handleSubmit, control, formState: { errors, isSubmitting } } = useForm<DadosNovo>({ resolver: zodResolver(esquemaNovo), defaultValues: { nome: '' } })
+  const slug = slugDoNome(useWatch({ control, name: 'nome' }) ?? '')
+
+  async function criar({ nome }: DadosNovo) {
+    const { data, error } = await supabase.from('empreendimentos').insert({ nome, slug: slugDoNome(nome), publicado: false }).select('id').single()
+    if (error) return void toast.error(error.code === '23505' ? 'Já existe um empreendimento com esse nome' : mensagemErro(error))
+    toast.success('Empreendimento criado como rascunho.')
+    aoCriar(data.id)
+  }
+
+  return (
+    <Modal
+      aberto
+      titulo="Novo empreendimento"
+      aoFechar={aoFechar}
+      bloquearFechar={isSubmitting}
+      rodape={<>
+        <button type="button" className="btn-ghost" onClick={aoFechar} disabled={isSubmitting}>Cancelar</button>
+        <button type="submit" form="form-novo-emp" className="btn-primary" disabled={isSubmitting}>{isSubmitting ? 'Criando…' : 'Criar e editar'}</button>
+      </>}
+    >
+      <form id="form-novo-emp" onSubmit={handleSubmit(criar)} className="grid gap-4">
+        <Campo label="Nome do empreendimento" erro={errors.nome?.message}>
+          <input className="input" autoFocus {...register('nome')} />
+        </Campo>
+        <p className="text-xs text-muted">Endereço no site: <span className="text-stone">/empreendimentos/{slug || '…'}</span>. Ele nasce como rascunho, fora do site, até você publicar no editor.</p>
+      </form>
+    </Modal>
   )
 }

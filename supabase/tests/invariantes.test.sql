@@ -59,6 +59,9 @@ select set_eq(
     'auditoria_consultar', 'config_atualizar', 'equipe_definir_papel', 'lgpd_publicar_termo', 'lgpd_aceitar_termo',
     'lgpd_revogar_consentimento', 'lgpd_anonimizar_cliente', 'portal_meus_dados', 'portal_meu_corretor',
     'portal_documentos', 'portal_contratos', 'portal_contrato_baixar', 'painel_resumo', 'migracao_pendencias_resolver',
+    -- portal sem financeiro (migration 24): titular e equipe
+    'portal_linha_do_tempo', 'portal_solicitacoes', 'portal_solicitar', 'crm_portal_marcos', 'crm_portal_marco_salvar',
+    'crm_portal_solicitacoes', 'crm_portal_solicitacao_atualizar',
     -- RPCs públicas
     'lgpd_termo_vigente', 'rede_link_publico',
     -- helpers usados em políticas de tabela e de Storage (§4.1); download_autorizado: consulta da própria autorização
@@ -196,7 +199,7 @@ select is(
       'parceiro_vinculos_historico', 'eventos_dominio', 'eventos_consumo', 'notificacoes', 'integracao_eventos',
       'integracao_chamadas', 'tentativas_publicas', 'download_autorizacoes', 'migracao_decisoes',
       'lgpd_consentimentos', 'parceiro_status_historico', 'pre_cadastro_avisos', 'legado_parceiro_clientes',
-      'migracao_parceiro_clientes', 'migracao_propostas',
+      'migracao_parceiro_clientes', 'migracao_propostas', 'negocio_marcos', 'portal_solicitacoes',
       -- depois do corte (§4.3): nem o núcleo do CRM nem leads e propostas têm acesso direto (tudo por RPC)
       'clientes', 'leads', 'propostas']) t
     cross join unnest(array['anon', 'authenticated']) r

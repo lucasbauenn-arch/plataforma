@@ -21,8 +21,8 @@ import { iguaisTempoConstante } from "../_shared/chaves.ts";
 import { emProducao, lerEnv } from "../_shared/ambiente.ts";
 import { clienteAdmin } from "../_shared/supabase.ts";
 import {
-  type DadosModelo, emailValido, esc, ehTipoFila, falhaDeConfiguracao, layoutEmail, montarEmail, primeiroNome, type Publico,
-  urlResend, VALIDADE_FILA_MS,
+  type DadosModelo, emailValido, esc, ehTipoFila, ehTipoSolicitacao, falhaDeConfiguracao, layoutEmail, montarEmail, primeiroNome,
+  type Publico, urlResend, VALIDADE_FILA_MS,
 } from "./modelos.ts";
 
 type Registro = Record<string, unknown>;
@@ -201,6 +201,10 @@ async function processarFila(db: SupabaseClient, registro: Registro, r: Resposta
     }
   }
   comum.clienteId = idsDe(dados.cliente_id)[0] ?? null;
+  // portal.solicitacao: só o tipo (lista fechada) e o número; o texto do pedido nunca entra na fila
+  comum.tipoSolicitacao = ehTipoSolicitacao(dados.tipo_solicitacao) ? dados.tipo_solicitacao : null;
+  const numero = Number(dados.numero);
+  comum.numeroSolicitacao = Number.isSafeInteger(numero) && numero > 0 ? numero : null;
   const qtd = Number(dados.quantidade);
   comum.quantidade = Number.isInteger(qtd) && qtd > 0 ? qtd : idsDe(dados.cliente_ids).length || null;
   const corretorBoasVindas = cliente?.corretor_id ?? aviso?.parceiro_id ?? null;

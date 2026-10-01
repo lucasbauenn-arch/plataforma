@@ -104,3 +104,85 @@ export async function buscarCep(valor: string, sinal?: AbortSignal): Promise<End
     return lerBrasilApi(cep, await buscarJson(`https://brasilapi.com.br/api/cep/v1/${cep}`, sinal))
   }
 }
+
+// ---------- coordenadas (latitude/longitude) para o mapa do empreendimento ----------
+
+export interface Coordenadas {
+  latitude: number
+  longitude: number
+  /**
+   * `endereco` = geocodificação da rua (OpenStreetMap/Nominatim); `aproximada` = centro do município ou do bairro
+   * (a BrasilAPI v2 devolve, na prática, o ponto do município do IBGE, não o da rua). A tela avisa para conferir.
+   */
+  precisao: 'endereco' | 'aproximada'
+}
+
+const numeroCoordenada = (v: unknown, limite: number) => {
+  const n = typeof v === 'number' ? v : typeof v === 'string' && v.trim() ? Number(v) : NaN
+  return Number.isFinite(n) && Math.abs(n) <= limite && n !== 0 ? n : null
+}
+
+/** `location.coordinates` da BrasilAPI `/api/cep/v2` (números em texto; objeto vazio quando não há). */
+export function lerCoordenadasBrasilApi(j: unknown): { latitude: number; longitude: number } | null {
+  const c = (j as { location?: { coordinates?: { latitude?: unknown; longitude?: unknown } } } | null)?.location?.coordinates
+  if (!c) return null
+  const latitude = numeroCoordenada(c.latitude, 90)
+  const longitude = numeroCoordenada(c.longitude, 180)
+  return latitude !== null && longitude !== null ? { latitude, longitude } : null
+}
+
+/** Primeiro resultado do Nominatim (`[{ lat, lon }]`, lista vazia quando não acha). */
+export function lerCoordenadasNominatim(j: unknown): { latitude: number; longitude: number } | null {
+  if (!Array.isArray(j) || !j.length) return null
+  const o = j[0] as { lat?: unknown; lon?: unknown }
+  const latitude = numeroCoordenada(o.lat, 90)
+  const longitude = numeroCoordenada(o.lon, 180)
+  return latitude !== null && longitude !== null ? { latitude, longitude } : null
+}
+
+/** Texto de busca do Nominatim: partes preenchidas, separadas por vírgula, com o país no fim. */
+export function consultaNominatim(partes: (string | null | undefined)[]) {
+  const limpas = partes.map((p) => (p ?? '').trim()).filter(Boolean)
+  return limpas.length ? [...limpas, 'Brasil'].join(', ') : ''
+}
+
+export const urlNominatim = (q: string) =>
+  `https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=br&q=${encodeURIComponent(q)}`
+
+type BuscarJson = (url: string, sinal?: AbortSignal) => Promise<unknown>
+
+/** Coordenadas de um endereço digitado (rua e número, cidade, UF), pelo Nominatim. `null` quando não acha. */
+export async function geocodificarEndereco(partes: (string | null | undefined)[], sinal?: AbortSignal, buscar: BuscarJson = buscarJson): Promise<Coordenadas | null> {
+  const q = consultaNominatim(partes)
+  if (!q) return null
+  const c = lerCoordenadasNominatim(await buscar(urlNominatim(q), sinal))
+  return c && { ...c, precisao: 'endereco' }
+}
+
+/**
+ * Latitude e longitude do CEP já consultado. Ordem: BrasilAPI v2 (`location.coordinates`); como ela devolve o centro do
+ * município, quando o CEP tem rua a rua é geocodificada no Nominatim e, se achar, vale a da rua. Sem rua (CEP geral
+ * da cidade) ou sem resultado na rua: fica a da BrasilAPI e, se ela vier vazia, o Nominatim pelo bairro/cidade — as
+ * duas como `aproximada`. Falha de rede de um serviço não impede o outro; `null` quando nenhum acha.
+ * Uma chamada por CEP completo ao Nominatim (política de uso: no máximo 1 requisição por segundo).
+ */
+export async function buscarCoordenadas(end: EnderecoCep, sinal?: AbortSignal, buscar: BuscarJson = buscarJson): Promise<Coordenadas | null> {
+  const tentar = async <T>(f: () => Promise<T | null>): Promise<T | null> => {
+    try {
+      return await f()
+    } catch (e) {
+      if (sinal?.aborted) throw e
+      return null
+    }
+  }
+  const brasil = await tentar(async () => lerCoordenadasBrasilApi(await buscar(`https://brasilapi.com.br/api/cep/v2/${soDigitos(end.cep)}`, sinal)))
+  const doNominatim = (partes: string[]) => tentar(async () => lerCoordenadasNominatim(await buscar(urlNominatim(consultaNominatim(partes)), sinal)))
+  if (end.logradouro) {
+    const rua = await doNominatim([end.logradouro, end.cidade, end.uf])
+    if (rua) return { ...rua, precisao: 'endereco' }
+  }
+  if (brasil) return { ...brasil, precisao: 'aproximada' }
+  if (end.logradouro || !end.cidade) return null
+  const regiao = await doNominatim([end.bairro, end.cidade, end.uf])
+  return regiao && { ...regiao, precisao: 'aproximada' }
+}

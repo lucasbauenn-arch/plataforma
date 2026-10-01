@@ -9,6 +9,8 @@ import { ESTAGIOS, EMPRESA } from '@/lib/constants'
 import { youtubeId, waLink } from '@/lib/format'
 import { midiaUrl } from '@/lib/midia'
 import { Seo } from '@/components/Seo'
+import { IconeCatalogo } from '@/components/app/IconeCatalogo'
+import { IconeTingido } from '@/components/app/IconeTingido'
 import { descricaoEmpreendimento, ogEmpreendimento, tituloEmpreendimento } from '@/lib/seo'
 
 export default function Empreendimento() {
@@ -73,7 +75,8 @@ export default function Empreendimento() {
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {e.empreendimento_ficha.map((f) => (
               <div key={f.id} className="card p-6">
-                {f.icone_url && <img src={midiaUrl(f.icone_url)!} alt="" className="h-10 w-10 object-contain" loading="lazy" />}
+                {/* ícones do WordPress vêm em vermelho: a imagem vira máscara pintada no bronze da marca */}
+                {f.icone_url && <IconeTingido caminho={f.icone_url} tamanho={40} />}
                 <p className="mt-4 font-semibold">{f.titulo}</p>
                 {f.descricao && <p className="mt-1 text-sm text-muted">{f.descricao}</p>}
               </div>
@@ -95,7 +98,7 @@ export default function Empreendimento() {
                   {l.imagem_url && <img src={midiaUrl(l.imagem_url)!} alt={l.titulo} loading="lazy" className="aspect-[16/10] w-full object-cover" />}
                   <div className="p-6">
                     <p className="flex items-center gap-3 font-semibold">
-                      {l.icone ? <img src={midiaUrl(l.icone)!} alt="" className="h-8 w-8 object-contain" loading="lazy" /> : <Check size={16} className="text-bronze" />}
+                      <IconeCatalogo tipo="lazer" chave={l.icone_catalogo} imagem={l.icone} tamanho={32} padrao={<Check size={16} className="text-bronze" aria-hidden />} />
                       {l.titulo}
                     </p>
                     {l.descricao && <p className="mt-2 text-sm text-muted">{l.descricao}</p>}
@@ -168,7 +171,9 @@ export default function Empreendimento() {
                   <tbody>
                     {e.empreendimento_proximidades.map((p) => (
                       <tr key={p.id} className="border-t border-line">
-                        <td className="px-4 py-3 font-medium">{p.nome}</td><td className="px-2 py-3">{p.distancia}</td>
+                        <td className="px-4 py-3 font-medium">
+                          <span className="flex items-center gap-2"><IconeCatalogo tipo="proximidade" chave={p.icone_catalogo} tamanho={16} />{p.nome}</span>
+                        </td><td className="px-2 py-3">{p.distancia}</td>
                         <td className="px-2 py-3">{p.tempo_pe}</td><td className="px-2 py-3">{p.tempo_carro}</td><td className="px-2 py-3">{p.tempo_transporte}</td><td className="px-2 py-3">{p.tempo_bike}</td>
                       </tr>
                     ))}

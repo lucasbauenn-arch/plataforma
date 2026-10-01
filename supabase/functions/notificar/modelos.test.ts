@@ -1,17 +1,41 @@
 // Modelos da função notificar (módulo puro). Roda no npm test (test.include cobre supabase/functions/**/*.test.ts).
 import { describe, expect, it } from 'vitest'
 import {
-  codigoContrato, ehTipoFila, emailValido, esc, falhaDeConfiguracao, montarEmail, primeiroNome, TIPOS_FILA, URL_RESEND, urlResend,
+  codigoContrato, ehTipoFila, ehTipoSolicitacao, emailValido, esc, falhaDeConfiguracao, montarEmail, primeiroNome, TIPOS_FILA, URL_RESEND, urlResend,
 } from './modelos'
 
 const SITE = 'https://arkenincorporadora.com.br'
 
 describe('modelos da fila de e-mails', () => {
-  it('reconhece os 7 tipos semeados em notificacoes_config', () => {
-    expect(TIPOS_FILA).toHaveLength(7)
+  it('reconhece os 9 tipos semeados em notificacoes_config (7 da 02, exclusividade da 23 e portal da 24)', () => {
+    expect(TIPOS_FILA).toHaveLength(9)
+    expect(ehTipoFila('crm.exclusividade_transferida')).toBe(true)
+    expect(ehTipoFila('portal.solicitacao')).toBe(true)
     expect(ehTipoFila('crm.boas_vindas')).toBe(true)
     expect(ehTipoFila('crm.outro')).toBe(false)
     expect(ehTipoFila(null)).toBe(false)
+  })
+
+  it('exclusividade vencida: aviso ao antigo dono sem nome nem link da ficha (ele perdeu o acesso)', () => {
+    const e = montarEmail('crm.exclusividade_transferida', { site: SITE, publico: 'painel', primeiroNome: 'Ana', clienteId: 'd0000000-0000-4000-8000-000000000001' })
+    expect(e?.assunto).toBe('Um cliente saiu da sua carteira')
+    expect(e?.html).toContain('Olá, Ana!')
+    expect(e?.html).toContain(`${SITE}/parceiros/painel/crm/lista`)
+    expect(e?.html).not.toContain('d0000000-0000-4000-8000-000000000001')
+    expect(montarEmail('crm.exclusividade_transferida', { site: SITE, publico: 'cliente' })).toBeNull()
+  })
+
+  it('solicitação do portal: só para a equipe, com o tipo e o número (nunca o texto do cliente)', () => {
+    const e = montarEmail('portal.solicitacao', { site: SITE, publico: 'admin', tipoSolicitacao: 'agendar_vistoria', numeroSolicitacao: 42 })
+    expect(e?.assunto).toBe('Nova solicitação no Portal do Cliente: Agendar vistoria')
+    expect(e?.html).toContain('nº 42')
+    expect(e?.html).toContain(`${SITE}/admin/clientes?aba=solicitacoes`)
+    expect(montarEmail('portal.solicitacao', { site: SITE, publico: 'painel', tipoSolicitacao: 'outro' })).toBeNull()
+    expect(montarEmail('portal.solicitacao', { site: SITE, publico: 'cliente' })).toBeNull()
+    expect(montarEmail('portal.solicitacao', { site: SITE, publico: 'admin' })?.assunto).toBe('Nova solicitação no Portal do Cliente: Solicitação')
+    expect(ehTipoSolicitacao('segunda_via_boleto')).toBe(true)
+    expect(ehTipoSolicitacao('toString')).toBe(false)
+    expect(ehTipoSolicitacao('<b>')).toBe(false)
   })
 
   it('escapa conteúdo variável (SEG-6)', () => {

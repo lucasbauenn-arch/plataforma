@@ -11,7 +11,7 @@ import { cnpjValido, cpfValido, mascaraCnpj, mascaraCpf, mascaraTelefone, soDigi
 import { INTERESSES } from '@/lib/constants'
 import type { EstadoCivil, Genero, TipoPessoa } from '@/lib/types'
 import type {
-  ClienteDados, ClienteEdicao, ClienteFicha, CrmFiltros, DuplicidadesFiltros, LeadItem, LeadsFiltros, PreCadastroDados,
+  CadastroResultado, ClienteDados, ClienteEdicao, ClienteFicha, CrmFiltros, DuplicidadesFiltros, LeadItem, LeadsFiltros, PreCadastroDados,
   PropostasFiltros, ResultadoDuplicidade,
 } from './tipos'
 
@@ -48,11 +48,24 @@ export const RESULTADOS_DUPLICIDADE: Record<ResultadoDuplicidade, string> = {
   bloqueado_contrato: 'Cliente com contrato',
   bloqueado_pos_prazo: 'Exclusividade vencida',
   mesmo_dono: 'Mesmo dono',
+  transferido_exclusividade: 'Transferido (exclusividade vencida)',
 }
 
-/** Resposta genérica da A2 (sem dono nem data, §4.5). */
-export const TEXTO_INDISPONIVEL =
-  'Este CPF/CNPJ não está disponível para cadastro. Por segurança, não informamos a situação do documento. Se precisar de ajuda, fale com a equipe Arken.'
+/**
+ * Mensagem do cadastro quando o documento é de outro parceiro (A2, decisão do dono de 29/09/2026): com a data da
+ * exclusividade quando o servidor a devolve; nunca o nome do dono (o servidor nem envia).
+ */
+export function textoIndisponivel(r: Pick<CadastroResultado, 'exclusividade_ate'>, tipoPessoa: TipoPessoa): string {
+  const doc = tipoPessoa === 'juridica' ? 'CNPJ' : 'CPF'
+  const ate = r.exclusividade_ate ? new Date(r.exclusividade_ate).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' }) : null
+  return ate
+    ? `Este ${doc} já está na carteira de outro parceiro, com exclusividade até ${ate}.`
+    : `Este ${doc} já está na carteira de outro parceiro.`
+}
+
+/** Aviso de quem recebeu o cliente depois do fim da exclusividade do parceiro anterior. */
+export const TEXTO_TRANSFERIDO =
+  'Este cliente estava com outro parceiro, mas a exclusividade venceu por falta de atividade: ele passou para a sua carteira. Confira os dados na ficha.'
 
 // ============ formulário do cliente ============
 

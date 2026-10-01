@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { useForm } from 'react-hook-form'
+import { Controller, useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -10,6 +10,7 @@ import { mensagemErro } from '@/lib/erros'
 import { TIPOS_PARCEIRO } from '@/lib/constants'
 import { dataHora } from '@/lib/format'
 import { Campo } from '@/components/Campo'
+import { CampoData } from '@/components/app/CampoData'
 import { Consulta } from '@/components/app/Consulta'
 import { SeloStatus } from '@/components/app/Etiqueta'
 import { Modal } from '@/components/app/Modal'
@@ -110,7 +111,9 @@ function ModalTarefa({ clienteId, tarefa, aberto, aoFechar, aoSalvar }: {
           </select>
         </Campo>
         <Campo label="Prazo" erro={e.prazo?.message}>
-          <input type="date" className="input" min={hojeSaoPaulo()} aria-invalid={!!e.prazo || undefined} {...form.register('prazo')} />
+          <Controller control={form.control} name="prazo" render={({ field }) => (
+            <CampoData valor={field.value ?? ''} aoMudar={field.onChange} min={hojeSaoPaulo()} invalido={!!e.prazo} />
+          )} />
         </Campo>
         <p className="text-xs text-muted">Só aparecem como responsáveis pessoas com acesso a este cliente, da sua equipe.</p>
       </form>

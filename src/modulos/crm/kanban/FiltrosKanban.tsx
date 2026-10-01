@@ -3,6 +3,7 @@ import { useEscopo } from '@/lib/escopo'
 import { BarraFiltros, CampoBusca, FiltroSelecao } from '@/components/app/Filtros'
 import { SeletorParceiro } from '@/components/app/SeletorParceiro'
 import { chavesFunil, listarImobiliarias } from '../api-funil'
+import { CampoData } from '@/components/app/CampoData'
 import type { KanbanFiltros } from '../tipos'
 
 /** Filtros que mudam; `null`/`''`/`false` = remover da URL. */
@@ -54,16 +55,14 @@ export function FiltrosKanban({ filtros, aoMudar }: { filtros: KanbanFiltros; ao
           Só os meus
         </label>
       )}
-      <label className="block">
+      <div className="block">
         <span className="label">Período de</span>
-        <input type="date" className="input w-auto py-2.5" value={filtros.periodo_de ?? ''} max={filtros.periodo_ate ?? undefined}
-          onChange={(e) => aoMudar({ periodo_de: e.target.value })} />
-      </label>
-      <label className="block">
+        <CampoData className="w-44" rotulo="Período de" valor={filtros.periodo_de ?? ''} max={filtros.periodo_ate} aoMudar={(v) => aoMudar({ periodo_de: v })} />
+      </div>
+      <div className="block">
         <span className="label">até</span>
-        <input type="date" className="input w-auto py-2.5" value={filtros.periodo_ate ?? ''} min={filtros.periodo_de ?? undefined}
-          onChange={(e) => aoMudar({ periodo_ate: e.target.value })} />
-      </label>
+        <CampoData className="w-44" rotulo="até" valor={filtros.periodo_ate ?? ''} min={filtros.periodo_de} aoMudar={(v) => aoMudar({ periodo_ate: v })} />
+      </div>
     </BarraFiltros>
   )
 }

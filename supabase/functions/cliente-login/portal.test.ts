@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import { chaveIp, type ArmazemTentativas } from '../_shared/limite-ip.ts'
 import { armazemEmMemoria, armazemQuebrado } from '../_shared/limite-ip.memoria.ts'
 import {
+  ACESSO_SUSPENSO,
+  CADASTRO_INATIVO,
+  NAO_ENCONTRADO,
+  respostaSemAcesso,
+  situacaoDoCpf,
   REGRA_PORTAL_GLOBAL,
   REGRA_PORTAL_IP,
   avaliarConta,
@@ -383,3 +388,18 @@ describe('resolverContaDoPortal', () => {
 function marcador(c: ContaAuth | undefined) {
   return c?.app_metadata?.portal_cliente_id
 }
+
+describe('mensagem quando o CPF não entra', () => {
+  it('suspenso e inativo têm mensagem própria (403); o resto é "não encontrado" (404)', () => {
+    expect(respostaSemAcesso('bloqueado')).toEqual({ status: 403, mensagem: ACESSO_SUSPENSO, codigo: 'acesso_bloqueado' })
+    expect(respostaSemAcesso('inativo')).toEqual({ status: 403, mensagem: CADASTRO_INATIVO, codigo: 'cadastro_suspenso' })
+    expect(respostaSemAcesso('nao_encontrado')).toEqual({ status: 404, mensagem: NAO_ENCONTRADO, codigo: 'nao_encontrado' })
+  })
+  it('situação vinda do banco; erro, exceção ou valor estranho viram "não encontrado"', async () => {
+    expect(await situacaoDoCpf(async () => ({ data: 'bloqueado', error: null }), '1')).toBe('bloqueado')
+    expect(await situacaoDoCpf(async () => ({ data: 'inativo', error: null }), '1')).toBe('inativo')
+    expect(await situacaoDoCpf(async () => ({ data: 'liberado', error: null }), '1')).toBe('nao_encontrado')
+    expect(await situacaoDoCpf(async () => ({ data: null, error: { code: '42883', message: 'não existe' } }), '1')).toBe('nao_encontrado')
+    expect(await situacaoDoCpf(async () => { throw new Error('rede') }, '1')).toBe('nao_encontrado')
+  })
+})

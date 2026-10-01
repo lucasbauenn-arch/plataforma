@@ -22,7 +22,7 @@ export interface CampoConfig {
 }
 
 export const CAMPOS_CONFIG: CampoConfig[] = [
-  { chave: 'exclusividade_dias', rotulo: 'Exclusividade do primeiro cadastro (dias)', grupo: 'CRM', tipo: 'inteiro', min: 1, max: 3650 },
+  { chave: 'exclusividade_dias', rotulo: 'Exclusividade sem atividade (dias)', grupo: 'CRM', tipo: 'inteiro', min: 1, max: 3650 },
   { chave: 'duplicidade_bloqueios_hora', rotulo: 'Tentativas com documento já cadastrado por hora', grupo: 'CRM', tipo: 'inteiro', min: 1, max: 1000, ajuda: 'Acima disso, o cadastro é bloqueado por uma hora.' },
   { chave: 'documentos_basicos', rotulo: 'Documentos básicos (um por linha)', grupo: 'CRM', tipo: 'lista', ajuda: 'Solicitados automaticamente quando o cliente entra em Documentação.' },
   { chave: 'documento_max_bytes', rotulo: 'Tamanho máximo de documento (MB)', grupo: 'CRM', tipo: 'megabytes', min: 1, max: 5 },

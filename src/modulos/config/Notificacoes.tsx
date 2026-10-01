@@ -17,6 +17,8 @@ const PARA: Record<TipoNotificacao, string> = {
   'contratos.enviado': 'Conforme o contrato',
   'contratos.assinado': 'Conforme o contrato',
   'rede.transferencia': 'Parceiros envolvidos',
+  'crm.exclusividade_transferida': 'Corretor que perdeu o cliente',
+  'portal.solicitacao': 'Equipe Arken',
 }
 
 /**

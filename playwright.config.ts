@@ -9,6 +9,8 @@ export default defineConfig({
   testDir: 'e2e',
   timeout: 30_000,
   fullyParallel: true,
+  // 4 em paralelo: com mais, as telas pesadas (contratos, configurações) estouram o tempo e falham por lentidão, não por defeito
+  workers: 4,
   reporter: [['list']],
   use: { baseURL: `http://localhost:${PORTA}`, channel: 'chrome', headless: true, locale: 'pt-BR', trace: 'retain-on-failure' },
   webServer: { command: `npm run dev -- --port ${PORTA} --strictPort`, url: `http://localhost:${PORTA}`, reuseExistingServer: true, timeout: 60_000 },

@@ -9,14 +9,14 @@ import { SeloStatus } from '@/components/app/Etiqueta'
 import type { PortalContrato } from '../tipos'
 
 /**
- * "Contratos" (portal_contratos): só a partir de assinatura_pendente; o download é só do PDF ASSINADO, por
+ * "Meu contrato" (portal_contratos): só a partir de assinatura_pendente; o download é só do PDF ASSINADO, por
  * portal_contrato_baixar (auditado) + Edge baixar-arquivo (URL curta).
  */
 export function MeusContratos({ contratos }: { contratos: PortalContrato[] }) {
   if (contratos.length === 0) return null
   return (
     <section className="card p-6 sm:p-8" aria-labelledby="portal-contratos">
-      <h2 id="portal-contratos" className="flex items-center gap-2 font-semibold"><FileSignature size={18} className="text-bronze" aria-hidden /> Contratos</h2>
+      <h2 id="portal-contratos" className="flex items-center gap-2 font-semibold"><FileSignature size={18} className="text-bronze" aria-hidden /> {contratos.length === 1 ? 'Meu contrato' : 'Meus contratos'}</h2>
       <ul className="mt-4 divide-y divide-line">
         {contratos.map((k) => <ItemContrato key={k.id} k={k} />)}
       </ul>

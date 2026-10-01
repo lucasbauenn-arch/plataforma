@@ -7,7 +7,7 @@ import { supabase } from '@/lib/supabase'
 import { useAuth } from '@/lib/auth'
 import { useInatividade } from '@/hooks/useInatividade'
 import { ErroRpc, mensagemErro, traduzirErro } from '@/lib/erros'
-import { portalContratos, portalDocumentos, portalMeuCorretor, portalMeusDados } from '@/lib/rpc'
+import { portalContratos, portalDocumentos, portalLinhaDoTempo, portalMeuCorretor, portalMeusDados, portalSolicitacoes } from '@/lib/rpc'
 import { Imagem } from '@/components/Imagem'
 import { Carregando, Vazio } from '@/components/Estados'
 import { ErroConsulta } from '@/components/app/Consulta'
@@ -17,6 +17,9 @@ import { MeusDados } from '@/modulos/portal/componentes/MeusDados'
 import { MeuCorretor } from '@/modulos/portal/componentes/MeuCorretor'
 import { DocumentosSolicitados } from '@/modulos/portal/componentes/DocumentosSolicitados'
 import { MeusContratos } from '@/modulos/portal/componentes/MeusContratos'
+import { LinhaDoTempoCompra } from '@/modulos/portal/componentes/LinhaDoTempoCompra'
+import { MinhasSolicitacoes } from '@/modulos/portal/componentes/MinhasSolicitacoes'
+import { chavesPortal } from '@/modulos/portal/rotulos'
 import type { ClienteArquivo, ClienteNegocio, ObraAtualizacao } from '@/lib/types'
 
 function Andamento({ empreendimentoId }: { empreendimentoId: string }) {
@@ -68,6 +71,8 @@ function Andamento({ empreendimentoId }: { empreendimentoId: string }) {
  * §6.7, N1): meus dados, seu corretor, documentos solicitados (só envio) e contratos (a partir de assinatura_pendente;
  * download só do PDF assinado). Negócios, arquivos e obra continuam pelas tabelas de exibição (políticas por
  * meu_cliente_id). Cada leitura das RPCs é auditada no servidor.
+ * Decisão do dono (29/09/2026, sem financeiro): "Meu contrato" (PDF assinado), "Linha do tempo da compra" por negócio
+ * (portal_linha_do_tempo: marcos que a equipe registra) e "Solicitações" (portal_solicitar / portal_solicitacoes).
  */
 export default function PortalCliente() {
   const { sair } = useAuth()
@@ -80,6 +85,8 @@ export default function PortalCliente() {
   const corretor = useQuery({ queryKey: ['portal', 'corretor'], queryFn: () => portalMeuCorretor(), enabled: liberado })
   const documentos = useQuery({ queryKey: ['portal', 'documentos'], queryFn: () => portalDocumentos(), enabled: liberado })
   const contratos = useQuery({ queryKey: ['portal', 'contratos'], queryFn: () => portalContratos(), enabled: liberado })
+  const linhaDoTempo = useQuery({ queryKey: ['portal', 'linha-do-tempo'], queryFn: () => portalLinhaDoTempo(), enabled: liberado })
+  const solicitacoes = useQuery({ queryKey: chavesPortal.solicitacoes, queryFn: () => portalSolicitacoes(), enabled: liberado })
   // negócios e arquivos em consultas separadas: uma falha não some com a outra, e nunca vira "nenhum imóvel/arquivo"
   const negociosQ = useQuery({
     queryKey: ['portal', 'negocios', clienteId],
@@ -133,6 +140,7 @@ export default function PortalCliente() {
   const d = dados.data
   const negocios = negociosQ.data ?? []
   const arquivos = arquivosQ.data ?? []
+  const linhas = linhaDoTempo.data ?? []
 
   return (
     <section className="container-x py-10">
@@ -158,6 +166,12 @@ export default function PortalCliente() {
                 </div>
                 {n.empreendimentos?.slug && <Link to={`/empreendimentos/${n.empreendimentos.slug}`} className="text-sm font-semibold text-bronze">Ver empreendimento →</Link>}
               </div>
+              {(() => {
+                const linha = linhas.find((l) => l.negocio_id === n.id)
+                if (linha) return <div className="mt-6"><LinhaDoTempoCompra linha={linha} /></div>
+                if (linhaDoTempo.error) return <div className="mt-6"><ErroConsulta erro={linhaDoTempo.error} tentarDeNovo={linhaDoTempo.refetch} /></div>
+                return null
+              })()}
               <h3 className="mt-6 mb-4 flex items-center gap-2 font-semibold"><HardHat size={18} className="text-bronze" /> Andamento da obra</h3>
               {n.empreendimento_id ? <Andamento empreendimentoId={n.empreendimento_id} /> : <p className="text-sm text-muted">—</p>}
             </div>
@@ -165,6 +179,10 @@ export default function PortalCliente() {
         ))}
 
         {contratos.error ? <ErroConsulta erro={contratos.error} tentarDeNovo={contratos.refetch} /> : contratos.data && <MeusContratos contratos={contratos.data} />}
+
+        {solicitacoes.isPending ? null : solicitacoes.error
+          ? <ErroConsulta erro={solicitacoes.error} tentarDeNovo={solicitacoes.refetch} />
+          : <MinhasSolicitacoes solicitacoes={solicitacoes.data ?? []} negocios={linhas.map((l) => ({ id: l.negocio_id, titulo: l.titulo }))} />}
 
         {documentos.isPending ? null : documentos.error
           ? <ErroConsulta erro={documentos.error} tentarDeNovo={documentos.refetch} />

@@ -12,7 +12,6 @@ import { ErroConsulta } from '@/components/app/Consulta'
 import { Etiqueta, SeloStatus, type Tom } from '@/components/app/Etiqueta'
 import { BarraFiltros, FiltroSelecao } from '@/components/app/Filtros'
 import { Paginacao } from '@/components/app/Paginacao'
-import { SeloProvisorio } from '@/components/app/SeloProvisorio'
 import { Tabela } from '@/components/app/Tabela'
 import { useBase } from '@/components/app/useBase'
 import { chavesCrm, RESULTADOS_DUPLICIDADE } from '../api-clientes'
@@ -21,15 +20,18 @@ import type { DecisaoDuplicidade, DuplicidadeItem, DuplicidadesFiltros, Resultad
 const LIMITE = 50
 const TOM: Record<ResultadoDuplicidade, Tom> = {
   bloqueado_exclusividade: 'neutro', bloqueado_contrato: 'neutro', bloqueado_pos_prazo: 'alerta', mesmo_dono: 'ok',
+  transferido_exclusividade: 'destaque',
 }
 
 /** Exclusividade ainda vigente (a fila só transfere depois do prazo; quem decide é o servidor em pode_transferir). */
 const dentroDoPrazo = (ate: string | null) => Boolean(ate) && new Date(ate as string).getTime() > Date.now()
 
 /**
- * Fila de duplicidades (A2, só internos): tentativas de cadastro com CPF/CNPJ que já existe. Nunca há transferência
- * automática; aqui a equipe decide manter o dono ou, só depois do prazo de exclusividade, transferir o cliente para
- * quem tentou (mesma regra de rede_transferir_clientes: entre imobiliárias, só o Super). Motivo obrigatório.
+ * Fila de duplicidades (A2, só internos): tentativas de cadastro com CPF/CNPJ que já existe. Regra do dono
+ * (29/09/2026): depois de 180 dias sem atividade, o cliente passa sozinho para quem cadastrou (aparece aqui já resolvido,
+ * "Transferido (exclusividade vencida)"). O que sobra para a equipe são os casos protegidos (cliente com contrato ou do
+ * portal, ou sem prazo registrado): manter o dono ou, só depois do prazo, transferir para quem tentou (mesma regra de
+ * rede_transferir_clientes: entre imobiliárias, só o Super). Motivo obrigatório.
  */
 export default function Duplicidades() {
   const base = useBase()
@@ -62,8 +64,7 @@ export default function Duplicidades() {
     <>
       <CabecalhoPagina
         eyebrow="CRM" titulo="Duplicidades"
-        subtitulo="Tentativas de cadastro com documento que já existe. O dono não muda sem decisão da equipe."
-        acoes={<SeloProvisorio codigo="A2" />}
+        subtitulo="Tentativas de cadastro com documento que já existe. Com a exclusividade vencida (sem atividade no prazo), o cliente passa sozinho para quem cadastrou; cliente com contrato ou do portal só muda por decisão da equipe."
       />
       <BarraFiltros>
         <FiltroSelecao rotulo="Situação" valor={pendentes} todos="Todas" aoMudar={(v) => { setPendentes(v); setOffset(0) }}
@@ -101,7 +102,7 @@ export default function Duplicidades() {
                   {d.resolvido_em ? (
                     <>
                       <Etiqueta tom={d.decisao === 'transferir' ? 'destaque' : 'neutro'}>{d.decisao === 'transferir' ? 'Transferido' : 'Mantido'}</Etiqueta>
-                      <span className="mt-1 block text-muted">{d.resolvido_por?.nome ?? '—'} · {dataHora(d.resolvido_em)}</span>
+                      <span className="mt-1 block text-muted">{d.resolvido_por?.nome ?? (d.resultado === 'transferido_exclusividade' ? 'Automático' : '—')} · {dataHora(d.resolvido_em)}</span>
                       {d.motivo_decisao && <span className="block whitespace-pre-line">{d.motivo_decisao}</span>}
                     </>
                   ) : <Etiqueta tom="alerta">Pendente</Etiqueta>}

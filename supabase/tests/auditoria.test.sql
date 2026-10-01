@@ -143,9 +143,9 @@ select is((select a.campos from public.auditoria a where a.id > (select auditori
 select is((select a.antes || a.depois from public.auditoria a where a.id > (select auditoria from t_ini)
              and a.categoria = 'configuracao' and a.entidade = 'configuracao_geral' and a.campos is not null) ? 'exclusividade_dias', true,
           'com antes e depois');
-select ok((select (a.antes ->> 'exclusividade_dias')::int = 90 and (a.depois ->> 'exclusividade_dias')::int = 120
+select ok((select (a.antes ->> 'exclusividade_dias')::int = 180 and (a.depois ->> 'exclusividade_dias')::int = 120
            from public.auditoria a where a.id > (select auditoria from t_ini)
-             and a.categoria = 'configuracao' and a.entidade = 'configuracao_geral' and a.campos is not null), 'antes 90, depois 120');
+             and a.categoria = 'configuracao' and a.entidade = 'configuracao_geral' and a.campos is not null), 'antes 180 (decisão do dono), depois 120');
 select pg_temp.entrar('super');
 select lives_ok($$select public.config_atualizar('{"exclusividade_dias": 120}')$$, 'sem mudança real: não falha');
 select lives_ok($$select public.config_atualizar('{}')$$, 'objeto vazio: nada muda');

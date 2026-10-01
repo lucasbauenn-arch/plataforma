@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   avaliarEdicao, campoDoFormulario, celulaCsv, csvDeLeads, deveRelerTermo, documentoObrigatorio, ErroPreCadastro, esquemaCliente,
-  paraClienteDados, paraEdicao, VALORES_VAZIOS, valoresDaFicha,
+  paraClienteDados, paraEdicao, textoIndisponivel, VALORES_VAZIOS, valoresDaFicha,
   type ValoresCliente,
 } from './api-clientes'
 import type { ClienteFicha, LeadItem } from './tipos'
@@ -138,5 +138,20 @@ describe('deveRelerTermo (pré-cadastro)', () => {
     expect(deveRelerTermo(new ErroPreCadastro(503, 'x', [], 'indisponivel'))).toBe(true)
     expect(deveRelerTermo(new ErroPreCadastro(429, 'x', [], 'limite_link'))).toBe(false)
     expect(deveRelerTermo(new ErroPreCadastro(422, 'x', ['cpf']))).toBe(false)
+  })
+})
+
+describe('textoIndisponivel (A2, decisão do dono de 29/09/2026)', () => {
+  it('dentro da exclusividade: mostra a data no fuso de São Paulo, nunca o dono', () => {
+    // 02:00 UTC do dia 16 = 23:00 do dia 15 em São Paulo
+    expect(textoIndisponivel({ exclusividade_ate: '2027-01-16T02:00:00Z' }, 'fisica'))
+      .toBe('Este CPF já está na carteira de outro parceiro, com exclusividade até 15/01/2027.')
+    expect(textoIndisponivel({ exclusividade_ate: '2027-01-16T02:00:00Z' }, 'juridica'))
+      .toBe('Este CNPJ já está na carteira de outro parceiro, com exclusividade até 15/01/2027.')
+  })
+
+  it('sem data (cliente com contrato ou do portal): só a carteira de outro parceiro', () => {
+    expect(textoIndisponivel({}, 'fisica')).toBe('Este CPF já está na carteira de outro parceiro.')
+    expect(textoIndisponivel({ exclusividade_ate: null }, 'juridica')).toBe('Este CNPJ já está na carteira de outro parceiro.')
   })
 })

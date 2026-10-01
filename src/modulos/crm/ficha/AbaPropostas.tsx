@@ -9,7 +9,7 @@ import { supabase } from '@/lib/supabase'
 import { mensagemErro, traduzirErro, ErroRpc, listaDoDetalhe } from '@/lib/erros'
 import { useEmpreendimentos } from '@/hooks/queries'
 import { STATUS_PROPOSTA } from '@/lib/constants'
-import { data } from '@/lib/format'
+import { brl, data, m2 } from '@/lib/format'
 import type { StatusProposta } from '@/lib/types'
 import { Campo } from '@/components/Campo'
 import { Carregando } from '@/components/Estados'
@@ -119,8 +119,15 @@ const esquemaProposta = z.object({
 })
 type DadosProposta = z.infer<typeof esquemaProposta>
 
+/** Unidade oferecida no formulário: só as disponíveis do empreendimento (a RPC propostas_criar confere de novo). */
+interface UnidadeOpcao { id: string; identificador: string; metragem: number | null; valor: number | null }
+
+function rotuloUnidade(u: UnidadeOpcao) {
+  return [u.identificador, u.metragem != null && m2(Number(u.metragem)), u.valor != null && brl(Number(u.valor))].filter(Boolean).join(' · ')
+}
+
 /**
- * Envio de proposta (propostas_criar): empreendimento, unidade opcional (não vendida), cliente do CRM opcional
+ * Envio de proposta (propostas_criar): empreendimento, unidade opcional (disponível), cliente do CRM opcional
  * (crm_clientes_opcoes) e o texto. Com `clienteFixo`, o cliente vem da ficha.
  */
 export function FormProposta({ clienteFixo, aoEnviar }: { clienteFixo?: ClienteOpcao; aoEnviar?: () => void }) {
@@ -128,18 +135,19 @@ export function FormProposta({ clienteFixo, aoEnviar }: { clienteFixo?: ClienteO
   const idCliente = useId()
   const { data: emps = [] } = useEmpreendimentos()
   const [cliente, setCliente] = useState<ClienteOpcao | null>(clienteFixo ?? null)
-  const { register, handleSubmit, reset, control, setError, formState: { errors, isSubmitting } } = useForm<DadosProposta>({
+  const { register, handleSubmit, reset, control, setError, setValue, formState: { errors, isSubmitting } } = useForm<DadosProposta>({
     resolver: zodResolver(esquemaProposta), defaultValues: { empreendimento_id: '', unidade_id: '', texto: '' },
   })
   const empId = useWatch({ control, name: 'empreendimento_id' })
+  // Parceiro aprovado lê unidades pela política "unid: parceiros leem" (anon não tem grant).
   const unidades = useQuery({
     queryKey: ['unidades-disponiveis', empId],
     enabled: !!empId,
     queryFn: async () => {
-      const { data: linhas, error } = await supabase.from('unidades').select('id, identificador, status')
-        .eq('empreendimento_id', empId).neq('status', 'vendida').order('identificador')
+      const { data: linhas, error } = await supabase.from('unidades').select('id, identificador, metragem, valor')
+        .eq('empreendimento_id', empId).eq('status', 'disponivel').order('identificador')
       if (error) throw traduzirErro(error)
-      return linhas as { id: string; identificador: string; status: string }[]
+      return linhas as UnidadeOpcao[]
     },
   })
   const disponiveis = emps.filter((e) => !['portfolio', 'futuro_lancamento'].includes(e.estagio))
@@ -169,17 +177,23 @@ export function FormProposta({ clienteFixo, aoEnviar }: { clienteFixo?: ClienteO
     <form onSubmit={handleSubmit(enviar)} className="card grid content-start gap-4 p-6" noValidate>
       <h3 className="display text-3xl">Fazer proposta</h3>
       <Campo label="Empreendimento" obrigatorio erro={errors.empreendimento_id?.message}>
-        <select className="input" {...register('empreendimento_id')}>
+        <select className="input" {...register('empreendimento_id', { onChange: () => setValue('unidade_id', '') })}>
           <option value="" disabled>Selecione um empreendimento</option>
           {disponiveis.map((e) => <option key={e.id} value={e.id}>{e.nome}</option>)}
         </select>
       </Campo>
-      <Campo label="Unidade (opcional)" erro={errors.unidade_id?.message}>
-        <select className="input" disabled={!empId} {...register('unidade_id')}>
-          <option value="">—</option>
-          {(unidades.data ?? []).map((u) => <option key={u.id} value={u.id}>{u.identificador}</option>)}
-        </select>
-      </Campo>
+      {empId && (
+        unidades.error ? <ErroConsulta erro={unidades.error} tentarDeNovo={unidades.refetch} /> : (
+          <Campo label="Unidade (opcional)" erro={errors.unidade_id?.message}>
+            <select className="input" disabled={unidades.isPending} {...register('unidade_id')}>
+              <option value="">
+                {unidades.isPending ? 'Carregando unidades…' : unidades.data?.length ? 'Sem unidade específica' : 'Nenhuma unidade disponível'}
+              </option>
+              {(unidades.data ?? []).map((u) => <option key={u.id} value={u.id}>{rotuloUnidade(u)}</option>)}
+            </select>
+          </Campo>
+        )
+      )}
       {!clienteFixo && (
         <div>
           <label htmlFor={idCliente} className="label">Cliente (opcional)</label>
@@ -187,7 +201,7 @@ export function FormProposta({ clienteFixo, aoEnviar }: { clienteFixo?: ClienteO
         </div>
       )}
       <Campo label="Proposta" obrigatorio erro={errors.texto?.message}>
-        <textarea rows={6} className="input" placeholder="Unidade, valor, forma de pagamento, entrada, FGTS…" {...register('texto')} />
+        <textarea rows={6} className="input" placeholder="Valor, forma de pagamento, entrada, FGTS…" {...register('texto')} />
       </Campo>
       <button type="submit" className="btn-primary justify-self-start" disabled={isSubmitting}>{isSubmitting ? 'Enviando…' : 'Enviar proposta'}</button>
     </form>

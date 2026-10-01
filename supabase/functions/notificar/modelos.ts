@@ -4,11 +4,11 @@
 
 export type TipoFila =
   | "crm.boas_vindas" | "crm.documento_rejeitado" | "crm.documento_solicitado" | "crm.novo_lead_corretor"
-  | "contratos.enviado" | "contratos.assinado" | "rede.transferencia";
+  | "contratos.enviado" | "contratos.assinado" | "rede.transferencia" | "crm.exclusividade_transferida" | "portal.solicitacao";
 
 export const TIPOS_FILA: readonly TipoFila[] = [
   "crm.boas_vindas", "crm.documento_rejeitado", "crm.documento_solicitado", "crm.novo_lead_corretor",
-  "contratos.enviado", "contratos.assinado", "rede.transferencia",
+  "contratos.enviado", "contratos.assinado", "rede.transferencia", "crm.exclusividade_transferida", "portal.solicitacao",
 ];
 
 export const ehTipoFila = (t: unknown): t is TipoFila => typeof t === "string" && (TIPOS_FILA as readonly string[]).includes(t);
@@ -30,7 +30,24 @@ export interface DadosModelo {
   contratoCodigo?: number | null;
   clienteId?: string | null;
   quantidade?: number | null;
+  /** portal.solicitacao: tipo do pedido (lista fechada) e número de exibição. Nunca o texto do cliente. */
+  tipoSolicitacao?: TipoSolicitacao | null;
+  numeroSolicitacao?: number | null;
 }
+
+/** Tipos de pedido do Portal do Cliente (portal_solicitacoes.tipo, migration 24). */
+export type TipoSolicitacao = "segunda_via_boleto" | "antecipacao_parcelas" | "agendar_vistoria" | "duvida_contrato" | "outro";
+
+export const ROTULOS_SOLICITACAO: Record<TipoSolicitacao, string> = {
+  segunda_via_boleto: "2ª via de boleto",
+  antecipacao_parcelas: "Antecipação de parcelas",
+  agendar_vistoria: "Agendar vistoria",
+  duvida_contrato: "Dúvida sobre o contrato",
+  outro: "Outro assunto",
+};
+
+export const ehTipoSolicitacao = (t: unknown): t is TipoSolicitacao =>
+  typeof t === "string" && Object.prototype.hasOwnProperty.call(ROTULOS_SOLICITACAO, t);
 
 export interface Email { assunto: string; html: string }
 
@@ -142,6 +159,29 @@ export function montarEmail(tipo: TipoFila, d: DadosModelo): Email | null {
         html: layoutEmail("Transferência na sua carteira",
           `${ola(d.primeiroNome)}<p>Houve uma transferência que envolve a sua carteira${n ? `: ${n} cliente${n > 1 ? "s" : ""}` : ""}. Confira no CRM.</p>`,
           { texto: "Abrir o CRM", url: url(d.site, `${base(d.publico)}/crm/lista`) }),
+      };
+    }
+    case "crm.exclusividade_transferida": {
+      // para o antigo dono: ele já não tem acesso ao cliente, então nem nome nem link da ficha
+      if (d.publico === "cliente") return null;
+      return {
+        assunto: "Um cliente saiu da sua carteira",
+        html: layoutEmail("Um cliente saiu da sua carteira",
+          `${ola(d.primeiroNome)}<p>Um cliente da sua carteira ficou sem atividade registrada durante todo o prazo de exclusividade e passou para outro parceiro, que o cadastrou depois do fim do prazo.</p>` +
+            "<p>Para manter a exclusividade, registre as atividades com o cliente no CRM (etapa, nota, tarefa, documento, proposta ou contrato).</p>",
+          { texto: "Abrir o CRM", url: url(d.site, `${base(d.publico)}/crm/lista`) }),
+      };
+    }
+    case "portal.solicitacao": {
+      // só para a equipe; o texto do pedido fica no painel (exige login)
+      if (d.publico !== "admin") return null;
+      const rotulo = d.tipoSolicitacao ? ROTULOS_SOLICITACAO[d.tipoSolicitacao] : "Solicitação";
+      const numero = d.numeroSolicitacao ? ` nº ${d.numeroSolicitacao}` : "";
+      return {
+        assunto: `Nova solicitação no Portal do Cliente: ${rotulo}`,
+        html: layoutEmail("Nova solicitação no Portal do Cliente",
+          `${ola(d.primeiroNome)}<p>Um cliente abriu a solicitação<strong>${esc(numero)}</strong> (${esc(rotulo)}) pelo Portal do Cliente.</p><p>Os detalhes estão no painel.</p>`,
+          { texto: "Ver solicitações", url: url(d.site, "/admin/clientes?aba=solicitacoes") }),
       };
     }
   }

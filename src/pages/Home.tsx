@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom'
 import useEmblaCarousel from 'embla-carousel-react'
 import { useCallback, useEffect, useState } from 'react'
-import { ArrowRight, Building, HardHat, Ruler, ChevronLeft, ChevronRight } from 'lucide-react'
+import { ArrowRight, Building2, KeyRound, LandPlot, ChevronLeft, ChevronRight } from 'lucide-react'
 import { useEmpreendimentos } from '@/hooks/queries'
 import { EmpreendimentoCard } from '@/components/EmpreendimentoCard'
 import { CarrosselEmpreendimentos } from '@/components/CarrosselEmpreendimentos'
@@ -92,9 +92,9 @@ function Secao({ eyebrow, titulo, itens, link }: { eyebrow: string; titulo: stri
 }
 
 const SERVICOS = [
-  { I: Ruler, t: 'Projetos estruturais', d: 'Projetos estruturais, elétricos e hidráulicos em conformidade com as normas da construção civil.' },
-  { I: HardHat, t: 'Execução de obras', d: 'Execução completa da obra, com gestão de cronograma, qualidade e segurança.' },
-  { I: Building, t: 'Incorporação', d: 'Desenvolvemos e lançamos empreendimentos residenciais em regiões estratégicas de São Paulo.' },
+  { I: LandPlot, t: 'Desenvolvimento imobiliário', d: 'Identificamos oportunidades, analisamos terrenos e desenvolvemos empreendimentos alinhados ao potencial de cada região.' },
+  { I: Building2, t: 'Incorporação', d: 'Estruturamos cada empreendimento da concepção ao lançamento, integrando planejamento, produto, aprovações e comercialização.' },
+  { I: KeyRound, t: 'Construção e entrega', d: 'Gerenciamos a execução dos nossos empreendimentos com foco em qualidade, eficiência, segurança e compromisso com a entrega.' },
 ]
 
 export default function Home() {
@@ -117,10 +117,10 @@ export default function Home() {
         <div className="container-x grid gap-14 lg:grid-cols-2">
           <div>
             <p className="eyebrow">Sobre a Arken</p>
-            <h2 className="display mt-4 text-4xl sm:text-6xl">Da concepção do projeto à entrega das chaves.</h2>
+            <h2 className="display mt-4 text-4xl sm:text-6xl">Do terreno à entrega das chaves.</h2>
             <p className="mt-6 max-w-lg leading-relaxed text-stone/75">
-              Atuamos como construtora e incorporadora: desenvolvemos projetos complementares, executamos obras sob medida e
-              colocamos no mercado empreendimentos pensados para quem quer morar perto de tudo.
+              A Arken desenvolve empreendimentos residenciais em regiões estratégicas de São Paulo, atuando em todas as etapas do
+              desenvolvimento imobiliário — da análise e aquisição do terreno à concepção, incorporação, construção e entrega.
             </p>
             <Link to="/quem-somos" className="btn mt-8 border border-stone/25 hover:bg-stone/10">Conheça a empresa <ArrowRight size={16} /></Link>
           </div>

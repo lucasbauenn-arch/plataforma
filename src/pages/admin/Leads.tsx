@@ -21,7 +21,7 @@ import { Paginacao } from '@/components/app/Paginacao'
 import { SeletorParceiro } from '@/components/app/SeletorParceiro'
 import { Tabela } from '@/components/app/Tabela'
 import {
-  baixarCsv, chavesCrm, csvDeLeads, paraClienteDados, TEXTO_INDISPONIVEL, useTermoCliente, VALORES_VAZIOS, type ValoresCliente,
+  baixarCsv, chavesCrm, csvDeLeads, paraClienteDados, textoIndisponivel, useTermoCliente, VALORES_VAZIOS, type ValoresCliente,
 } from '@/modulos/crm/api-clientes'
 import { FormCliente } from '@/modulos/crm/componentes/FormCliente'
 import type { LeadItem, LeadsFiltros } from '@/modulos/crm/tipos'
@@ -156,7 +156,7 @@ function Converter({ lead, aoFechar, aoConcluir }: { lead: LeadItem; aoFechar: (
   const navegar = useNavigate()
   const termo = useTermoCliente()
   const [corretor, setCorretor] = useState<string | null>(null)
-  const [indisponivel, setIndisponivel] = useState(false)
+  const [indisponivel, setIndisponivel] = useState<string | null>(null)
   const inicial = useMemo<Partial<ValoresCliente>>(() => {
     const partes = lead.nome.trim().split(/\s+/)
     return {
@@ -167,11 +167,11 @@ function Converter({ lead, aoFechar, aoConcluir }: { lead: LeadItem; aoFechar: (
   }, [lead])
 
   async function converter(v: ValoresCliente) {
-    setIndisponivel(false)
+    setIndisponivel(null)
     if (!termo.data) throw new ErroRpc('DESCONHECIDO', 'O termo de consentimento ainda não carregou. Tente de novo.')
     const r = await leadsConverter({ p_lead_id: lead.id, p_corretor_id: corretor, p_dados: paraClienteDados(v), p_termo_id: termo.data.id })
     if (r.situacao === 'indisponivel' || !r.id) {
-      setIndisponivel(true)
+      setIndisponivel(textoIndisponivel(r, v.tipo_pessoa))
       return
     }
     toast.success(r.situacao === 'criado' ? 'Lead convertido em cliente.' : 'Este documento já é de um cliente: o lead foi ligado a ele.')
@@ -182,7 +182,7 @@ function Converter({ lead, aoFechar, aoConcluir }: { lead: LeadItem; aoFechar: (
 
   return (
     <Modal aberto titulo={`Converter ${lead.nome} em cliente`} aoFechar={aoFechar} largura="lg">
-      {indisponivel && <p role="alert" className="mb-4 border border-bronze/40 bg-bronze/10 p-3 text-sm">{TEXTO_INDISPONIVEL}</p>}
+      {indisponivel && <p role="alert" className="mb-4 border border-bronze/40 bg-bronze/10 p-3 text-sm">{indisponivel}</p>}
       <FormCliente
         modo="cadastro" inicial={inicial} versaoTermo={termo.data?.versao ?? null} rotuloEnviar="Converter em cliente"
         aoEnviar={converter} aoCancelar={aoFechar}

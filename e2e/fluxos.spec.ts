@@ -134,7 +134,12 @@ test('corretor da rede envia proposta para um cliente do CRM (propostas_criar co
   await isolarSupabase(page)
   await entrarComo(page, id, 'corretor@e2e.com', 'corretor', { nome: 'Corretora E2E' })
   await page.route('**/rest/v1/empreendimentos**', (r) => responderRest(r, [empreendimentoTeste]))
-  await page.route('**/rest/v1/unidades**', (r) => responderRest(r, [{ id: 'u12', identificador: 'APTO 12', status: 'disponivel' }]))
+  // o seletor pede só as disponíveis do empreendimento (a RPC propostas_criar confere de novo)
+  const consultasUnidades: string[] = []
+  await page.route('**/rest/v1/unidades**', (r) => {
+    consultasUnidades.push(r.request().url())
+    return responderRest(r, [{ id: 'u12', identificador: 'APTO 12', metragem: 45, valor: 400000 }, { id: 'u14', identificador: 'APTO 14', metragem: null, valor: null }])
+  })
   // a tela antiga lia e gravava direto em propostas e parceiro_clientes: o modelo novo passa só pelas RPCs
   const diretas: string[] = []
   await page.route(/\/rest\/v1\/(propostas|parceiro_clientes|clientes)(\?|$)/, (r) => { diretas.push(r.request().url()); return responderRest(r, []) })
@@ -157,8 +162,14 @@ test('corretor da rede envia proposta para um cliente do CRM (propostas_criar co
   await page.goto('/parceiros/painel/propostas')
   await expect(page.getByRole('heading', { name: 'Olá, Corretora' })).toBeVisible()
   await expect(page.getByText('Nenhuma proposta enviada')).toBeVisible()
+  // a unidade só aparece depois de escolher o empreendimento
+  await expect(page.getByLabel('Unidade (opcional)')).toHaveCount(0)
   await page.getByLabel('Empreendimento').selectOption({ label: 'Residencial E2E' })
-  await page.getByLabel('Unidade (opcional)').selectOption({ label: 'APTO 12' })
+  const unidade = page.getByLabel('Unidade (opcional)')
+  await expect(unidade.locator('option', { hasText: /^APTO 12 · 45 m² · R\$\s400\.000$/ })).toHaveCount(1)
+  await expect(unidade.locator('option', { hasText: /^APTO 14$/ })).toHaveCount(1)
+  await expect(unidade).toHaveValue('')
+  await unidade.selectOption('u12')
   await page.getByRole('combobox', { name: 'Cliente (opcional)' }).fill('Maria')
   await page.getByRole('option', { name: /Maria Compradora/ }).click()
   await page.getByLabel('Proposta').fill('APTO 12, entrada de 10% + FGTS, financiamento Caixa.')
@@ -172,4 +183,10 @@ test('corretor da rede envia proposta para um cliente do CRM (propostas_criar co
     p_texto: 'APTO 12, entrada de 10% + FGTS, financiamento Caixa.',
   }])
   expect(diretas).toEqual([])
+  expect(consultasUnidades.length).toBeGreaterThan(0)
+  for (const url of consultasUnidades) {
+    const q = new URL(url).searchParams
+    expect(q.get('status')).toBe('eq.disponivel')
+    expect(q.get('empreendimento_id')).toBe(`eq.${empreendimentoTeste.id}`)
+  }
 })

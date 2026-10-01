@@ -275,8 +275,20 @@ export interface Empreendimento {
 }
 
 export interface Midia { id: string; empreendimento_id: string; tipo: TipoMidia; url: string; legenda: string | null; ordem: number }
-export interface Lazer { id: string; empreendimento_id: string; titulo: string; descricao: string | null; icone: string | null; imagem_url: string | null; ordem: number }
-export interface Proximidade { id: string; empreendimento_id: string; nome: string; distancia: string | null; tempo_pe: string | null; tempo_carro: string | null; tempo_transporte: string | null; tempo_bike: string | null; foto_url: string | null; ordem: number }
+export interface Lazer {
+  id: string; empreendimento_id: string; titulo: string; descricao: string | null
+  /** Caminho da imagem do ícone no Storage (itens vindos do WordPress). */
+  icone: string | null
+  /** migration 21: chave do catálogo (src/components/app/catalogoIcones.ts). Tem prioridade sobre `icone` na exibição. */
+  icone_catalogo: string | null
+  imagem_url: string | null; ordem: number
+}
+export interface Proximidade {
+  id: string; empreendimento_id: string; nome: string; distancia: string | null; tempo_pe: string | null; tempo_carro: string | null
+  tempo_transporte: string | null; tempo_bike: string | null; foto_url: string | null; ordem: number
+  /** migration 21: categoria (chave do catálogo de proximidades: mercado, escola, metro…). */
+  icone_catalogo: string | null
+}
 export interface FichaItem { id: string; empreendimento_id: string; titulo: string; descricao: string | null; icone_url: string | null; ordem: number }
 export interface ObraAtualizacao { id: string; empreendimento_id: string; percentual: number | null; titulo: string; descricao: string | null; fotos: string[]; data: string }
 

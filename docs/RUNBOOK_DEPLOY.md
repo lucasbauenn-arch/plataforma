@@ -209,6 +209,15 @@ Cada item destrava uma parte do que está bloqueado (tabela adiante). Configura�
 9. **Portal:** ficha do cliente › Portal para liberar (`portal_liberado`) só quem deve entrar; reconfirmar o login só por CPF antes de ativar contratos (N1).
 10. **Turnstile e HSTS:** conferir o console em produção (passo 5) e ajustar HSTS depois de olhar os subdomínios.
 
+## Passo 9. Decisões do dono de 29/09/2026 (migrations 23 e 24, sem financeiro)
+Depois das migrations já publicadas (até a `20260929000020` e as 21/22 dos outros pacotes, na ordem numérica):
+```
+supabase db push --dry-run     # tem de listar só as migrations novas, em ordem (… 23, 24)
+supabase db push
+supabase functions deploy notificar --use-api     # modelos crm.exclusividade_transferida e portal.solicitacao
+```
+Antes: rodar `BASE_ATE=20260929999999 PARAR_AO_FINAL=1 bash scripts/testar-db.sh excl 54890 "" todos` (pgTAP `exclusividade` e `portal_solicitacoes`, mais o conjunto todo). Conferir no SQL editor: `select exclusividade_dias from public.configuracao_geral` (180) e `select tipo, ativo from public.notificacoes_config where tipo in ('crm.exclusividade_transferida', 'portal.solicitacao')` (dois ligados). A 23 recalcula o prazo de todos os clientes (última atividade + 180 dias, sem encurtar). Sem o redeploy do `notificar`, os dois avisos novos ficam na fila como "tipo sem modelo" (ignorados), sem erro. Front: `build` + `conferir:dist` como no passo 5.
+
 ## O que continua bloqueado por pendência de negócio
 
 O deploy em si não depende dessas respostas; cada uma trava só o que está indicado (numeração da §9.2 do desenho, situação em `docs/PRD.md` §13.1).

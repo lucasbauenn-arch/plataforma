@@ -62,15 +62,20 @@ export interface ClienteDados {
 export type ClienteEdicao = Partial<Omit<ClienteDados, 'tipo_pessoa'>>
 
 /**
- * Resultado de `crm_cadastrar_cliente` e `leads_converter` (regra A2):
+ * Resultado de `crm_cadastrar_cliente` e `leads_converter` (regra A2, decidida pelo dono em 29/09/2026; migration 23):
  * - `criado`: novo cliente, `id` preenchido;
  * - `ja_na_sua_carteira`: o documento já é de um cliente no escopo de quem cadastra, `id` = esse cliente;
- * - `indisponivel`: o documento existe fora do escopo (dentro ou fora do prazo); `id` nulo, **sem dono nem data**.
+ * - `transferido`: o documento era de outro parceiro, mas a exclusividade (180 dias sem atividade) venceu: o cliente
+ *   passou para o responsável deste cadastro (histórico, auditoria e aviso ao antigo dono no servidor), `id` = ele;
+ * - `indisponivel`: o documento é de outro parceiro; `id` nulo e **nunca o dono**. `exclusividade_ate` vem só quando o
+ *   motivo é o prazo; cliente com contrato ou do portal não é tomado e vem sem data.
  * Acima de `duplicidade_bloqueios_hora` bloqueios na última hora: erro `LIMITE_DUPLICIDADE`.
  */
 export interface CadastroResultado {
-  situacao: 'criado' | 'ja_na_sua_carteira' | 'indisponivel'
+  situacao: 'criado' | 'ja_na_sua_carteira' | 'transferido' | 'indisponivel'
   id: Uuid | null
+  /** Só em `indisponivel` por exclusividade vigente. */
+  exclusividade_ate?: DataHoraISO | null
 }
 
 /** `p_filtros` de `crm_listar`. O filtro por corretor/gerente/imobiliária é sempre cruzado com o escopo. */
@@ -258,7 +263,10 @@ export interface CrmFicha {
 // ---------- duplicidades (internos) ----------
 
 /** `cliente_duplicidades.resultado`. */
-export type ResultadoDuplicidade = 'bloqueado_exclusividade' | 'bloqueado_contrato' | 'bloqueado_pos_prazo' | 'mesmo_dono'
+export type ResultadoDuplicidade =
+  | 'bloqueado_exclusividade' | 'bloqueado_contrato' | 'bloqueado_pos_prazo' | 'mesmo_dono'
+  /** Exclusividade vencida: o cliente passou para quem tentou (já resolvida, migration 23). */
+  | 'transferido_exclusividade'
 /** `p_decisao` de `crm_duplicidade_resolver`: `transferir` usa a mesma lógica de `rede_transferir_clientes`, para quem tentou. */
 export type DecisaoDuplicidade = 'manter' | 'transferir'
 

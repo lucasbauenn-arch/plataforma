@@ -11,7 +11,7 @@ export function Footer() {
         <div className="md:col-span-2">
           <Logo />
           <p className="mt-6 max-w-sm text-sm leading-relaxed">
-            Incorporação e construção residencial em São Paulo — do projeto estrutural à entrega das chaves.
+            Incorporação e desenvolvimento imobiliário em São Paulo — da escolha do terreno à entrega das chaves.
           </p>
           <p className="mt-6 flex max-w-sm gap-2 text-sm"><MapPin size={16} className="mt-0.5 shrink-0 text-bronze" />{EMPRESA.endereco}</p>
         </div>
